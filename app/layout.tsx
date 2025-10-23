@@ -17,9 +17,9 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "SENTINEL-X - Advanced Satellite Threat Detection System",
+  title: "Orbitwatch - Advanced Satellite Threat Detection System",
   description: "Professional satellite anomaly detection and threat monitoring platform",
-  generator: "SENTINEL-X v4.0",
+  generator: "Orbitwatch v1.0",
 }
 
 export default function RootLayout({

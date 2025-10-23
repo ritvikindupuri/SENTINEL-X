@@ -17,12 +17,19 @@ export interface SatelliteTelemetry {
 
 export interface AnomalyResult {
   is_anomaly: boolean;
-  reconstruction_error: number;
-  isolation_forest_score: number;
+  anomaly_type: string;
+  severity: string;
+}
+
+export interface DashboardData {
+    subframes: any[];
+    logs: any[];
+    rsos: any[];
 }
 
 class MLAnomalyService {
   private socket: Socket;
+  private predictionCallback: ((result: AnomalyResult) => void) | null = null;
 
   constructor() {
     this.socket = io(ML_SERVICE_URL, {
@@ -36,28 +43,31 @@ class MLAnomalyService {
     this.socket.on("disconnect", () => {
       console.log("Disconnected from Python ML service");
     });
+
+    this.socket.on("prediction_result", (data: AnomalyResult) => {
+      if (this.predictionCallback) {
+        this.predictionCallback(data);
+      }
+    });
   }
 
-  async trainModel(trainingData: SatelliteTelemetry[]): Promise<any> {
-    const response = await fetch(`${ML_SERVICE_URL}/train`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ data: trainingData }),
-    });
-    return response.json();
+  getDashboardData(telemetry: SatelliteTelemetry) {
+    this.socket.emit("get_dashboard_data", { telemetry });
   }
 
-  async detectAnomaly(telemetry: SatelliteTelemetry): Promise<AnomalyResult> {
-    const response = await fetch(`${ML_SERVICE_URL}/predict`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ telemetry }),
+  onDashboardData(callback: (data: DashboardData) => void) {
+    this.socket.on("dashboard_data", callback);
+  }
+
+  trainModel(trainingData: SatelliteTelemetry[], satellites: any[]) {
+    this.socket.emit("train", { data: trainingData, satellites });
+  }
+
+  detectAnomaly(telemetry: SatelliteTelemetry, satellite: any): Promise<AnomalyResult> {
+    return new Promise((resolve) => {
+      this.predictionCallback = resolve;
+      this.socket.emit("predict", { telemetry, satellite });
     });
-    return response.json();
   }
 
   onNewTelemetry(callback: (data: any) => void) {
