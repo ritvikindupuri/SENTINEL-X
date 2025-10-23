@@ -183,12 +183,7 @@ class RealTimeInferenceService {
     this.emitDashboardData();
   }
 
-  private emitDashboardData() {
-    const dashboardData = this.buildDashboardData();
-    this.onNewDataCallback(dashboardData);
-  }
-
-
+  private emitDashboard.ts
   private buildDashboardData(): DashboardData {
     const score = this.calculateOverallScore();
     const now = new Date();
