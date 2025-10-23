@@ -36,42 +36,39 @@ normalized_stats = {
     'std': np.ones(8),
 }
 
-class DashboardDataGenerator:
-    def _generate_subframes(self, telemetry):
-        subframes = []
-        for i, (key, value) in enumerate(telemetry.items()):
-            subframes.append({
-                "id": f"sf_{i}",
-                "name": key.replace("_", " ").title(),
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "description": f"{key.replace('_', ' ').title()}: {value:.2f}",
-            })
-        return subframes
+def _generate_subframes(telemetry):
+    subframes = []
+    for i, (key, value) in enumerate(telemetry.items()):
+        subframes.append({
+            "id": f"sf_{i}",
+            "name": key.replace("_", " ").title(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "description": f"{key.replace('_', ' ').title()}: {value:.2f}",
+        })
+    return subframes
 
-    def _generate_logs(self):
-        logs = []
-        for anomaly in anomalies_detected:
-            logs.append({
-                "id": f"log_{anomaly['id']}",
-                "timestamp": anomaly['timestamp'],
-                "level": "warning" if anomaly['severity'] in ["medium", "high"] else "error",
-                "message": f"Anomaly detected on {anomaly['satelliteName']}: {anomaly['anomaly_type']}",
-            })
-        return logs
+def _generate_logs():
+    logs = []
+    for anomaly in anomalies_detected:
+        logs.append({
+            "id": f"log_{anomaly['id']}",
+            "timestamp": anomaly['timestamp'],
+            "level": "warning" if anomaly['severity'] in ["medium", "high"] else "error",
+            "message": f"Anomaly detected on {anomaly['satelliteName']}: {anomaly['anomaly_type']}",
+        })
+    return logs
 
-    def _generate_rsos(self):
-        rsos = []
-        for sat in monitored_satellites:
-            rsos.append({
-                "id": f"rso_{sat['norad_cat_id']}",
-                "name": sat['name'],
-                "type": "satellite",
-                "threatLevel": "low", # Placeholder
-                "orbit": "LEO", # Placeholder
-            })
-        return rsos
-
-dashboard_data_generator = DashboardDataGenerator()
+def _generate_rsos():
+    rsos = []
+    for sat in monitored_satellites:
+        rsos.append({
+            "id": f"rso_{sat['noradId']}",
+            "name": sat['name'],
+            "type": "satellite",
+            "threatLevel": "low", # Placeholder
+            "orbit": "LEO", # Placeholder
+        })
+    return rsos
 
 def train_models_on_data(training_data):
     """Trains the ML models on the provided data."""
@@ -100,9 +97,9 @@ def handle_disconnect():
 def handle_get_dashboard_data(json):
     telemetry = json.get('telemetry', {})
     emit('dashboard_data', {
-        "subframes": dashboard_data_generator._generate_subframes(telemetry),
-        "logs": dashboard_data_generator._generate_logs(),
-        "rsos": dashboard_data_generator._generate_rsos(),
+        "subframes": _generate_subframes(telemetry),
+        "logs": _generate_logs(),
+        "rsos": _generate_rsos(),
     })
 
 @socketio.on('train')
@@ -160,16 +157,4 @@ def handle_predict_event(json):
     })
 
 if __name__ == '__main__':
-    # Initial training with synthetic data
-    print("Performing initial model training with synthetic data...")
-    num_samples = 1000
-    synthetic_data = [{
-        'temperature': 25 + np.random.randn(), 'power': 85 + np.random.randn(),
-        'communication': 95 + np.random.randn(), 'orbit': 98 + np.random.randn() * 0.1,
-        'voltage': 12 + np.random.randn() * 0.1, 'solarPanelEfficiency': 90 + np.random.randn(),
-        'attitudeControl': 95 + np.random.randn(), 'fuelLevel': 80 + np.random.randn()}
-        for _ in range(num_samples)
-    ]
-    train_models_on_data(synthetic_data)
-
     socketio.run(app, debug=True)
