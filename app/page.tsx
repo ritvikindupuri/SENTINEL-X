@@ -39,71 +39,43 @@ export default function Dashboard() {
     lastUpdate: new Date().toISOString(),
   })
 
-  const [isLoading, setIsLoading] = useState(true)
-
   useEffect(() => {
-    const initializeSystem = async () => {
-      console.log("[v0] Initializing SENTINEL-X system...")
-      await realTimeInference.startRealTimeInference()
-      console.log("[v0] Real-time inference system started")
-    }
+    realTimeInference.startRealTimeInference();
 
-    initializeSystem()
-
-    const fetchSatelliteData = async () => {
-      try {
-        const anomalies = realTimeInference.getRecentAnomalies(50)
-        const inferenceMetrics = realTimeInference.getInferenceMetrics()
-        const systemStatus = realTimeInference.getSystemStatus()
-
-        const fileAlerts = anomalies.filter((a) => a.anomalyResult.anomalyType.includes("Communication")).length
-        const userAlerts = anomalies.filter((a) => a.anomalyResult.anomalyType.includes("Power")).length
-        const hostAlerts = anomalies.filter((a) => a.anomalyResult.anomalyType.includes("Orbital")).length
-        const networkAlerts = anomalies.filter((a) => a.anomalyResult.anomalyType.includes("Sensor")).length
-
-        const recentEvents = anomalies.slice(0, 20).map((anomaly, index) => ({
-          satelliteId: anomaly.noradId ? `NORAD-${anomaly.noradId}` : `SAT-${String(index + 1).padStart(4, "0")}`,
-          anomalyType: anomaly.anomalyResult.anomalyType,
-          severity: anomaly.anomalyResult.severity,
-          location: `${anomaly.location.latitude.toFixed(2)}°, ${anomaly.location.longitude.toFixed(2)}°`,
-          timestamp: new Date(anomaly.timestamp).toISOString().slice(0, 19).replace("T", " "),
-          coordinates: {
-            lat: anomaly.location.latitude,
-            lng: anomaly.location.longitude,
-            alt: anomaly.location.altitude,
+    const handleNewAnomaly = (anomaly: any) => {
+      setAnomalyData((prevData) => {
+        const newRecentEvents = [
+          {
+            satelliteId: `SAT-${String(prevData.recentEvents.length + 1).padStart(4, "0")}`,
+            anomalyType: anomaly.anomalyResult.anomalyType,
+            severity: anomaly.anomalyResult.severity,
+            location: `${anomaly.location.latitude.toFixed(2)}°, ${anomaly.location.longitude.toFixed(2)}°`,
+            timestamp: new Date(anomaly.timestamp).toISOString().slice(0, 19).replace("T", " "),
+            coordinates: {
+              lat: anomaly.location.latitude,
+              lng: anomaly.location.longitude,
+              alt: anomaly.location.altitude,
+            },
+            country: getCountryFromCoordinates(anomaly.location.latitude, anomaly.location.longitude),
           },
-          country: getCountryFromCoordinates(anomaly.location.latitude, anomaly.location.longitude),
-        }))
+          ...prevData.recentEvents,
+        ];
 
-        setAnomalyData({
-          totalAlerts: anomalies.length,
-          fileAlerts,
-          userAlerts,
-          hostAlerts,
-          networkAlerts,
-          recentEvents,
-          mlModelStatus: systemStatus.model === "ready" ? "online" : systemStatus.model,
-          spaceTrackStatus:
-            systemStatus.dataSources.spaceTrack === "connected" ? "active" : systemStatus.dataSources.spaceTrack,
+        return {
+          ...prevData,
+          totalAlerts: prevData.totalAlerts + 1,
+          recentEvents: newRecentEvents,
           lastUpdate: new Date().toISOString(),
-        })
+        };
+      });
+    };
 
-        setIsLoading(false)
-        console.log(`[v0] Dashboard updated: ${anomalies.length} anomalies detected`)
-      } catch (error) {
-        console.error("[v0] Error fetching satellite data:", error)
-        setIsLoading(false)
-      }
-    }
-
-    fetchSatelliteData()
-    const interval = setInterval(fetchSatelliteData, 15000)
+    realTimeInference.onNewAnomaly(handleNewAnomaly);
 
     return () => {
-      clearInterval(interval)
-      realTimeInference.stopRealTimeInference()
-    }
-  }, [])
+      realTimeInference.stopRealTimeInference();
+    };
+  }, []);
 
   const getCountryFromCoordinates = (lat: number, lng: number): string => {
     if (lat > 45 && lng > -125 && lng < -60) return "United States"
@@ -111,18 +83,6 @@ export default function Dashboard() {
     if (lat > 41 && lng > -5 && lng < 10) return "France"
     if (lat > 47 && lng > 5 && lng < 15) return "Germany"
     return "International"
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#1a1d2e] text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
-          <div className="text-gray-300">Initializing SENTINEL-X...</div>
-          <div className="text-xs text-gray-500 mt-2">Loading Python ML models and Space-Track data</div>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -317,7 +277,7 @@ export default function Dashboard() {
                         {anomalyData.mlModelStatus.toUpperCase()}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500">PyTorch CNN + Isolation Forest + XGBoost</div>
+                    <div className="text-xs text-gray-500">TensorFlow + scikit-learn</div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -332,7 +292,7 @@ export default function Dashboard() {
                         {anomalyData.spaceTrackStatus.toUpperCase()}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500">Real-time ISS data ingestion</div>
+                    <div className="text-xs text-gray-500">Simulated ISS data</div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">

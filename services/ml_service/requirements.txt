@@ -1,0 +1,8 @@
+flask
+flask-socketio
+tensorflow
+scikit-learn
+numpy
+python-engineio==3.13.2
+python-socketio==4.6.1
+Werkzeug==2.0.3

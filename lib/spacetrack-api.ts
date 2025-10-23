@@ -27,23 +27,6 @@ export interface SatelliteData {
   }
 }
 
-export interface SpaceWeatherData {
-  solarFlareActivity: number
-  geomagneticStorm: number
-  radiationLevel: number
-  timestamp: string
-  alerts: string[]
-  events: SpaceWeatherEvent[]
-}
-
-export interface SpaceWeatherEvent {
-  eventType: string
-  eventTime: string
-  catalog: string
-  instruments: string[]
-  description: string
-}
-
 export async function fetchSatellitePositions(): Promise<SatelliteData[]> {
   try {
     const spaceTrackUsername = process.env.SPACE_TRACK_USERNAME
