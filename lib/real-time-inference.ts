@@ -1,291 +1,261 @@
+
 // Real-time ML Inference Service for Satellite Anomaly Detection
 import { fetchSatellitePositions, type SatelliteData } from "./spacetrack-api"
-import { mlService, type SatelliteTelemetry, type AnomalyResult } from "./ml-service"
-import { predictOrbit } from "./orbital-mechanics"
-import { MITREMapper, type ThreatIntelligence } from "./mitre-mapping"
+import io from "socket.io-client";
 
+const ML_SERVICE_URL = "http://localhost:5000";
+
+// (Keep existing interfaces)
 export interface RealTimeAnomaly {
-  id: string
-  satelliteName: string
-  noradId?: number
-  anomalyResult: AnomalyResult
-  timestamp: string
+  id: string;
+  satelliteName: string;
+  noradId?: number;
+  anomalyResult: any;
+  timestamp: string;
   location: {
-    latitude: number
-    longitude: number
-    altitude: number
-  }
-  orbitalPrediction?: {
-    decayRisk: number
-    collisionRisk: number
-    anomalyIndicators: {
-      unexpectedOrbitChange: boolean
-      altitudeDrift: boolean
-      velocityAnomaly: boolean
-    }
-  }
-  threatIntelligence?: ThreatIntelligence
+    latitude: number;
+    longitude: number;
+    altitude: number;
+  };
+  orbitalPrediction?: any;
+  threatIntelligence?: any;
+  isFlagged?: boolean;
 }
 
-export interface InferenceMetrics {
-  totalSatellitesMonitored: number
-  anomaliesDetected: number
-  inferenceRate: number // inferences per minute
-  lastUpdate: string
-  modelStatus: "ready" | "training" | "error"
-  dataSourceStatus: {
-    spaceTrack: "connected" | "error" | "rate_limited"
-    tle: "connected" | "error"
-  }
+export interface Subframe {
+  id: string;
+  name: string;
+  timestamp: string;
+  description: string;
 }
+
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: "info" | "warning" | "error";
+  message: string;
+}
+
+export interface RSO {
+  id: string;
+  name: string;
+  type: string;
+  threatLevel: "low" | "medium" | "high";
+  orbit: string;
+}
+
+export interface DashboardData {
+  header: {
+    alerts: number;
+    rsos: number;
+    ttps: number;
+    score: number;
+  };
+  alertsOverTime: Array<{ name: string; alerts: number }>;
+  telemetryTimeline: Array<{ name: string; power: number; temp: number; comms: number }>;
+  rsoClassification: Array<{ name: string; status: string; score: number }>;
+  spartaMitreAlignment: Array<{ id: string; name: string; coverage: number }>;
+  score: number;
+  recentEvents: RealTimeAnomaly[];
+  subframes: Subframe[];
+  logs: LogEntry[];
+  rsos: RSO[];
+}
+
 
 class RealTimeInferenceService {
   private anomalies: RealTimeAnomaly[] = []
   private isRunning = false
   private inferenceInterval: NodeJS.Timeout | null = null
-  private metrics: InferenceMetrics = {
+  private dashboardDataInterval: NodeJS.Timeout | null = null;
+  private onNewDataCallback: (data: DashboardData) => void = () => {};
+  private metrics: any = {
     totalSatellitesMonitored: 0,
     anomaliesDetected: 0,
-    inferenceRate: 0,
-    lastUpdate: new Date().toISOString(),
-    modelStatus: "ready",
-    dataSourceStatus: {
-      spaceTrack: "connected",
-      tle: "connected",
-    },
   }
-  private inferenceCount = 0
-  private lastInferenceTime = Date.now()
-  private spaceWeatherCacheTime = 0
+  private socket: any;
 
   constructor() {
-    this.initializeInference()
+    this.socket = io(ML_SERVICE_URL, {
+      transports: ["websocket"],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 3000,
+    });
+
+    this.socket.on("connect", () => {
+      console.log("Connected to Python ML service");
+      if (typeof window !== "undefined") {
+        this.trainInitialModel();
+      }
+    });
+
+    this.socket.on("disconnect", () => {
+      console.log("Disconnected from Python ML service");
+    });
+
+    this.socket.on("dashboard_data", (data) => {
+      this.emitDashboardData(data);
+    });
+
+    this.socket.on("new_anomaly", (newAnomaly: RealTimeAnomaly) => {
+      console.log("Received new anomaly:", newAnomaly);
+      if (!this.anomalies.some(a => a.id === newAnomaly.id)) {
+        this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
+        this.metrics.anomaliesDetected = this.anomalies.length;
+      }
+    });
   }
 
-  private async initializeInference() {
-    console.log("[v0] Initializing real-time inference system...")
-
-    // Wait for ML model to be ready
-    const waitForModel = () => {
-      return new Promise<void>((resolve) => {
-        const checkModel = () => {
-          if (mlService.isModelReady()) {
-            this.metrics.modelStatus = "ready"
-            console.log("[v0] ML model is ready for inference")
-            resolve()
-          } else {
-            setTimeout(checkModel, 1000)
-          }
-        }
-        checkModel()
-      })
-    }
-
-    await waitForModel()
-
-    // Train model with synthetic data if not already trained
-    try {
-      const trainingData = mlService.generateSyntheticTrainingData(1500)
-      await mlService.trainModel(trainingData)
-      console.log("[v0] ML model trained and ready for real-time inference")
-    } catch (error) {
-      console.error("[v0] Error training ML model:", error)
-      this.metrics.modelStatus = "error"
+  async trainInitialModel() {
+    console.log("Fetching initial data for model training...");
+    const initialSatellites = await fetchSatellitePositions();
+    if (initialSatellites.length > 0) {
+      const trainingData = initialSatellites.map(this.convertSatelliteDataToTelemetry);
+      this.socket.emit("train", { data: trainingData, satellites: initialSatellites });
     }
   }
 
   async startRealTimeInference() {
-    if (this.isRunning) {
-      console.log("[v0] Real-time inference already running")
-      return
-    }
+    if (this.isRunning) return;
+    this.isRunning = true;
 
-    console.log("[v0] Starting real-time satellite anomaly inference...")
-    this.isRunning = true
-    this.lastInferenceTime = Date.now()
-
-    // Run inference every 30 seconds
-    this.inferenceInterval = setInterval(async () => {
-      await this.runInferenceCycle()
-    }, 30000)
-
-    // Run initial inference
-    await this.runInferenceCycle()
+    this.inferenceInterval = setInterval(() => this.runInferenceCycle(), 30000); // 30 seconds
+    this.dashboardDataInterval = setInterval(() => this.emitDashboardData(), 2000);
   }
 
   stopRealTimeInference() {
-    if (!this.isRunning) return
-
-    console.log("[v0] Stopping real-time inference...")
-    this.isRunning = false
-
-    if (this.inferenceInterval) {
-      clearInterval(this.inferenceInterval)
-      this.inferenceInterval = null
-    }
+    if (!this.isRunning) return;
+    this.isRunning = false;
+    if (this.inferenceInterval) clearInterval(this.inferenceInterval);
+    if (this.dashboardDataInterval) clearInterval(this.dashboardDataInterval);
   }
 
   private async runInferenceCycle() {
     try {
-      console.log("[v0] Running inference cycle...")
+      const satellites = await fetchSatellitePositions();
+      this.metrics.totalSatellitesMonitored = satellites.length;
 
-      // Fetch current satellite positions from Space-Track
-      let satellites: SatelliteData[] = []
-      try {
-        satellites = await fetchSatellitePositions()
-        this.metrics.dataSourceStatus.tle = "connected"
-        this.metrics.dataSourceStatus.spaceTrack = "connected"
-        this.metrics.totalSatellitesMonitored = satellites.length
-      } catch (error) {
-        console.error("[v0] Error fetching satellite data:", error)
-        this.metrics.dataSourceStatus.tle = "error"
-        this.metrics.dataSourceStatus.spaceTrack = "error"
-        return
+      const telemetryData = satellites.map(s => ({
+          telemetry: this.convertSatelliteDataToTelemetry(s),
+          satellite: s,
+      }));
+
+      if(telemetryData.length > 0) {
+        this.socket.emit("get_dashboard_data", { telemetry: telemetryData[0].telemetry });
       }
 
-      // Process each satellite through ML model
-      for (const satellite of satellites) {
-        await this.processSatelliteForAnomalies(satellite)
+      for (const data of telemetryData) {
+          this.socket.emit("predict", data);
       }
-
-      // Update metrics
-      this.updateInferenceMetrics()
     } catch (error) {
-      console.error("[v0] Error in inference cycle:", error)
+      console.error("Error in inference cycle:", error);
     }
   }
 
-  private async processSatelliteForAnomalies(satellite: SatelliteData) {
-    try {
-      const telemetry: SatelliteTelemetry = this.convertSatelliteDataToTelemetry(satellite)
-
-      // Run ML inference
-      const anomalyResult = await mlService.detectAnomaly(telemetry)
-      this.inferenceCount++
-
-      // If anomaly detected, create anomaly record
-      if (anomalyResult.isAnomaly) {
-        let orbitalPrediction
-        if (satellite.tle) {
-          const prediction = predictOrbit(satellite.tle.line1, satellite.tle.line2, 24, 60)
-          if (prediction) {
-            orbitalPrediction = {
-              decayRisk: prediction.orbitalDecayRisk,
-              collisionRisk: prediction.collisionRisk,
-              anomalyIndicators: prediction.anomalyIndicators,
-            }
-          }
-        }
-
-        const threatIntelligence = MITREMapper.mapAnomalyToMITRE(anomalyResult.anomalyType, anomalyResult.severity)
-
-        const realTimeAnomaly: RealTimeAnomaly = {
-          id: `anomaly_${Date.now()}_${satellite.id}`,
-          satelliteName: satellite.name,
-          noradId: satellite.noradId,
-          anomalyResult,
-          timestamp: new Date().toISOString(),
-          location: {
-            latitude: satellite.latitude,
-            longitude: satellite.longitude,
-            altitude: satellite.altitude,
-          },
-          orbitalPrediction,
-          threatIntelligence: threatIntelligence || undefined,
-        }
-
-        // Add to anomalies list (keep last 50)
-        this.anomalies = [realTimeAnomaly, ...this.anomalies.slice(0, 49)]
-        this.metrics.anomaliesDetected = this.anomalies.length
-
-        console.log(
-          `[v0] Anomaly detected: ${satellite.name} - ${anomalyResult.anomalyType} (${anomalyResult.confidence}% confidence) - MITRE: ${threatIntelligence?.mitreId || "N/A"}`,
-        )
-      }
-    } catch (error) {
-      console.error(`[v0] Error processing satellite ${satellite.name}:`, error)
+  flagAnomaly(anomalyId: string) {
+    const anomaly = this.anomalies.find(a => a.id === anomalyId);
+    if (anomaly) {
+      anomaly.isFlagged = true;
+      this.emitDashboardData();
     }
   }
 
-  private convertSatelliteDataToTelemetry(satellite: SatelliteData): SatelliteTelemetry {
+  createManualAlert(alert: { satelliteName: string; anomalyType: string; severity: "low" | "medium" | "high" }) {
+    const newAnomaly: RealTimeAnomaly = {
+      id: `manual_anomaly_${Date.now()}`,
+      satelliteName: alert.satelliteName,
+      anomalyResult: {
+        anomaly_type: alert.anomalyType,
+        severity: alert.severity,
+      },
+      timestamp: new Date().toISOString(),
+      location: { // Placeholder location for manual alerts
+        latitude: Math.random() * 180 - 90,
+        longitude: Math.random() * 360 - 180,
+        altitude: 400,
+      },
+      isFlagged: true, // Manual alerts are always flagged
+    };
+    this.socket.emit("manual_alert", newAnomaly);
+  }
+
+  private emitDashboardData(data: any = {}) {
+    const dashboardData = {
+      ...this.buildDashboardData(),
+      ...data,
+    };
+    this.onNewDataCallback(dashboardData);
+  }
+
+  private buildDashboardData(): DashboardData {
+    const score = this.calculateOverallScore();
+    const now = new Date();
+
+    return {
+      header: {
+        alerts: this.anomalies.length,
+        rsos: this.metrics.totalSatellitesMonitored,
+        ttps: 4, // static for now
+        score: score,
+      },
+      alertsOverTime: this.anomalies.slice(0, 10).map((a, i) => ({
+        name: this.formatTime(new Date(a.timestamp), 0),
+        alerts: 1,
+      })),
+      telemetryTimeline: this.anomalies.slice(0, 10).map((a, i) => ({
+        name: this.formatTime(new Date(a.timestamp), 0),
+        power: Math.random() * 20 + 80, // placeholder
+        temp: Math.random() * 20 + 15, // placeholder
+        comms: Math.random() * 10 + 90, // placeholder
+      })),
+      rsoClassification: this.anomalies.map(a => ({
+        name: a.satelliteName,
+        status: a.anomalyResult.severity,
+        score: Math.floor(Math.random() * 60) + 40,
+      })),
+      spartaMitreAlignment: [
+        { id: "T001", name: "Signal Jamming", coverage: 75 },
+        { id: "T002", name: "GPS Spoofing", coverage: 50 },
+        { id: "T003", name: "Data Exfiltration", coverage: 85 },
+      ],
+      score: score,
+      recentEvents: this.anomalies,
+      subframes: [],
+      logs: [],
+      rsos: [],
+    };
+  }
+
+  private calculateOverallScore(): number {
+    if (this.anomalies.length === 0) return 0;
+    const severityScores = { "low": 10, "medium": 40, "high": 80, "critical": 100 };
+    const totalScore = this.anomalies.reduce((acc, a) => {
+      return acc + (severityScores[a.anomalyResult.severity] || 0);
+    }, 0);
+    return Math.min(100, Math.floor(totalScore / this.anomalies.length));
+  }
+
+  private formatTime(date: Date, minuteOffset: number): string {
+    const newDate = new Date(date.getTime() + minuteOffset * 60000);
+    return newDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  private convertSatelliteDataToTelemetry(satellite: SatelliteData): any {
     return {
       temperature: satellite.telemetry.temperature,
       power: satellite.telemetry.power,
       communication: satellite.telemetry.communication,
-      orbit: satellite.altitude > 0 ? Math.min(100, (satellite.altitude / 1000) * 10) : 95,
+      orbit: satellite.altitude,
       voltage: satellite.telemetry.power > 80 ? 12 + (Math.random() - 0.5) * 1 : 10 + Math.random() * 2,
       solarPanelEfficiency: Math.max(0, Math.min(100, satellite.telemetry.power - 5 + Math.random() * 10)),
       attitudeControl: Math.max(0, Math.min(100, 95 + (Math.random() - 0.5) * 10)),
       fuelLevel: Math.max(0, Math.min(100, 80 + (Math.random() - 0.5) * 30)),
       timestamp: Date.now(),
-    }
+    };
   }
 
-  private updateInferenceMetrics() {
-    const now = Date.now()
-    const timeDiff = (now - this.lastInferenceTime) / 1000 / 60 // minutes
-
-    this.metrics.inferenceRate = timeDiff > 0 ? this.inferenceCount / timeDiff : 0
-    this.metrics.lastUpdate = new Date().toISOString()
-    this.metrics.modelStatus = mlService.isModelReady() ? "ready" : "error"
-  }
-
-  // Public API methods
-  getRecentAnomalies(limit = 20): RealTimeAnomaly[] {
-    return this.anomalies.slice(0, limit)
-  }
-
-  getInferenceMetrics(): InferenceMetrics {
-    return { ...this.metrics }
-  }
-
-  getAnomaliesBySeverity(severity: "low" | "medium" | "high" | "critical"): RealTimeAnomaly[] {
-    return this.anomalies.filter((anomaly) => anomaly.anomalyResult.severity === severity)
-  }
-
-  getAnomaliesForMap(): Array<{
-    id: string
-    lat: number
-    lng: number
-    severity: string
-    type: string
-    satellite: string
-    timestamp: string
-  }> {
-    return this.anomalies.map((anomaly) => ({
-      id: anomaly.id,
-      lat: anomaly.location.latitude,
-      lng: anomaly.location.longitude,
-      severity: anomaly.anomalyResult.severity,
-      type: anomaly.anomalyResult.anomalyType,
-      satellite: anomaly.satelliteName,
-      timestamp: anomaly.timestamp,
-    }))
-  }
-
-  isInferenceRunning(): boolean {
-    return this.isRunning
-  }
-
-  async forceInferenceCycle() {
-    if (this.isRunning) {
-      await this.runInferenceCycle()
-    }
-  }
-
-  clearAnomalies() {
-    this.anomalies = []
-    this.metrics.anomaliesDetected = 0
-  }
-
-  getSystemStatus() {
-    return {
-      inference: this.isRunning ? "running" : "stopped",
-      model: this.metrics.modelStatus,
-      dataSources: this.metrics.dataSourceStatus,
-      lastUpdate: this.metrics.lastUpdate,
-      totalAnomalies: this.anomalies.length,
-    }
+  onNewData(callback: (data: DashboardData) => void) {
+    this.onNewDataCallback = callback;
   }
 }
 

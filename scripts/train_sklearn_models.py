@@ -7,6 +7,7 @@ Trains on real Space-Track ISS data
 import numpy as np
 import requests
 import os
+from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
@@ -219,6 +220,39 @@ if __name__ == '__main__':
     iso_forest = train_isolation_forest()
     xgb_model = train_xgboost()
     rf_model = train_random_forest()
+    svm_model = train_one_class_svm()
     
     print("\n=== Training Complete ===")
     print("All models saved successfully!")
+
+def train_one_class_svm():
+    """Train One-Class SVM for anomaly detection"""
+    print("\n=== Training One-Class SVM ===")
+
+    features, labels = fetch_spacetrack_iss_data()
+
+    # Normalize
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+
+    # Train One-Class SVM
+    svm_model = OneClassSVM(
+        nu=0.1,
+        kernel="rbf",
+        gamma=0.1
+    )
+
+    svm_model.fit(features_scaled)
+    predictions = svm_model.predict(features_scaled)
+
+    # Convert predictions (-1 for anomaly, 1 for normal) to (1 for anomaly, 0 for normal)
+    predictions = np.where(predictions == -1, 1, 0)
+
+    print("\nOne-Class SVM Results:")
+    print(classification_report(labels, predictions, target_names=['Normal', 'Anomaly']))
+
+    # Save model
+    joblib.dump(svm_model, 'one_class_svm_model.pkl')
+    print("Saved One-Class SVM model")
+
+    return svm_model

@@ -124,6 +124,12 @@ function parseSpaceTrackTLE(tle: any): SatelliteData {
   const altitude = Math.pow(398600.4418 / ((meanMotion * 2 * Math.PI) / 86400), 2 / 3) - 6371
   const velocity = (meanMotion * 2 * Math.PI * (6371 + altitude)) / 86400 / 1000
 
+  // Generate more realistic telemetry data
+  const sunAngle = Math.cos(((new Date().getUTCHours() * 15 + lng) * Math.PI) / 180);
+  const power = 80 + sunAngle * 20 + Math.random() * 5; // Power generation depends on sun angle
+  const temperature = 20 + sunAngle * 30 - altitude / 100 + (Math.random() - 0.5) * 10; // Temperature depends on sun angle and altitude
+  const communication = 90 + Math.random() * 10; // Assume stable communication for now
+
   return {
     id: `sat_${noradId}`,
     name: name,
@@ -134,9 +140,9 @@ function parseSpaceTrackTLE(tle: any): SatelliteData {
     timestamp: new Date().toISOString(),
     status: "operational",
     telemetry: {
-      temperature: 20 + (Math.random() - 0.5) * 40,
-      power: 80 + Math.random() * 20,
-      communication: 90 + Math.random() * 10,
+      temperature: temperature,
+      power: power,
+      communication: communication,
       orientation: {
         roll: (argPerigee + meanAnomaly) % 360,
         pitch: inclination,
