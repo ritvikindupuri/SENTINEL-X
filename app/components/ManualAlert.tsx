@@ -44,6 +44,7 @@ const ManualAlert = ({ onManualAlert }: ManualAlertProps) => {
           className="bg-[#1a1d2e] text-white w-full px-4 py-2 rounded-md border border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
         <select
+          name="severity"
           value={severity}
           onChange={(e) => setSeverity(e.target.value as "low" | "medium" | "high")}
           className="bg-[#1a1d2e] text-white border border-gray-600 rounded-md px-3 py-2 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500"
