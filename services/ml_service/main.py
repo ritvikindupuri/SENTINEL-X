@@ -1,19 +1,27 @@
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 from flask import Flask
 from flask_socketio import SocketIO, emit
 import tensorflow as tf
+from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
 import numpy as np
 import random
 from datetime import datetime, timedelta
+import threading
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Thread lock for safe data access
+lock = threading.Lock()
+
 # In-memory data stores
-time_series_buffer = []
-TIME_SERIES_LENGTH = 10
 anomalies_detected = []
 monitored_satellites = []
+telemetry_data_store = []
 
 # Load or define ML models
 def create_autoencoder(input_dim):
@@ -30,6 +38,7 @@ def create_autoencoder(input_dim):
 
 autoencoder_model = create_autoencoder(8)
 isolation_forest_model = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
+svm_model = OneClassSVM(nu=0.1, kernel="rbf", gamma=0.1)
 
 normalized_stats = {
     'mean': np.zeros(8),
@@ -49,41 +58,61 @@ def _generate_subframes(telemetry):
 
 def _generate_logs():
     logs = []
-    for anomaly in anomalies_detected:
-        logs.append({
-            "id": f"log_{anomaly['id']}",
-            "timestamp": anomaly['timestamp'],
-            "level": "warning" if anomaly['severity'] in ["medium", "high"] else "error",
-            "message": f"Anomaly detected on {anomaly['satelliteName']}: {anomaly['anomaly_type']}",
-        })
+    with lock:
+        for anomaly in anomalies_detected:
+            logs.append({
+                "id": f"log_{anomaly['id']}",
+                "timestamp": anomaly['timestamp'],
+                "level": "warning" if anomaly.get('severity') in ["medium", "high"] else "error",
+                "message": f"Anomaly detected on {anomaly.get('satelliteName', 'Unknown')}: {anomaly.get('anomaly_type', 'Unknown')}",
+            })
     return logs
 
-def _generate_rsos():
+def _generate_rsos(telemetry):
     rsos = []
-    for sat in monitored_satellites:
-        rsos.append({
-            "id": f"rso_{sat['noradId']}",
-            "name": sat['name'],
-            "type": "satellite",
-            "threatLevel": "low", # Placeholder
-            "orbit": "LEO", # Placeholder
-        })
+    with lock:
+        for sat in monitored_satellites:
+            threat_level = "low"
+            if anomalies_detected:
+                latest_anomaly = anomalies_detected[-1]
+                if latest_anomaly['satelliteName'] == sat['name']:
+                    threat_level = latest_anomaly['severity']
+
+            rsos.append({
+                "id": f"rso_{sat['noradId']}",
+                "name": sat['name'],
+                "type": "satellite",
+                "threatLevel": threat_level,
+                "orbit": telemetry.get('orbit', 'LEO'),
+            })
     return rsos
 
 def train_models_on_data(training_data):
     """Trains the ML models on the provided data."""
     print("Training models on provided data...")
-    features = np.array([list(d.values()) for d in training_data])
+    with lock:
+        features = np.array([list(d.values()) for d in training_data])
 
-    mean = np.mean(features, axis=0)
-    std = np.std(features, axis=0)
-    normalized_stats['mean'] = mean
-    normalized_stats['std'] = std
-    normalized_features = (features - mean) / (std + 1e-8)
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0)
+        normalized_stats['mean'] = mean
+        normalized_stats['std'] = std
+        normalized_features = (features - mean) / (std + 1e-8)
 
-    autoencoder_model.fit(normalized_features, normalized_features, epochs=50, batch_size=32, verbose=0)
-    isolation_forest_model.fit(normalized_features)
+        autoencoder_model.fit(normalized_features, normalized_features, epochs=50, batch_size=32, verbose=0)
+        isolation_forest_model.fit(normalized_features)
+        svm_model.fit(normalized_features)
     print("Models trained successfully on provided data")
+
+def background_training_thread():
+    """Periodically retrains the models."""
+    while True:
+        socketio.sleep(3600)  # 1 hour
+        print("Starting periodic model retraining...")
+        with lock:
+            if len(telemetry_data_store) > 100: # Retrain if we have enough new data
+                train_models_on_data(telemetry_data_store)
+                telemetry_data_store.clear() # Clear after training
 
 @socketio.on('connect')
 def handle_connect():
@@ -99,16 +128,38 @@ def handle_get_dashboard_data(json):
     emit('dashboard_data', {
         "subframes": _generate_subframes(telemetry),
         "logs": _generate_logs(),
-        "rsos": _generate_rsos(),
+        "rsos": _generate_rsos(telemetry),
     })
 
 @socketio.on('train')
 def handle_train_event(json):
     print('Received training data')
     training_data = json.get('data')
-    monitored_satellites.extend(json.get('satellites', []))
-    if training_data:
-        train_models_on_data(training_data)
+    with lock:
+        monitored_satellites.extend(json.get('satellites', []))
+        if training_data:
+            telemetry_data_store.extend(training_data)
+            train_models_on_data(training_data)
+
+    # Start the background training thread if it hasn't been started
+    if not hasattr(app, 'training_thread_started'):
+        threading.Thread(target=background_training_thread).start()
+        app.training_thread_started = True
+
+@socketio.on('manual_alert')
+def handle_manual_alert(json):
+    print('Received manual alert: ', json)
+    with lock:
+        anomaly_result = json.get('anomalyResult', {})
+        anomaly = {
+            "id": json.get('id'),
+            "satelliteName": json.get('satelliteName'),
+            "anomaly_type": anomaly_result.get('anomaly_type'),
+            "severity": anomaly_result.get('severity'),
+            "timestamp": json.get('timestamp'),
+        }
+        anomalies_detected.append(anomaly)
+    emit('new_anomaly', json, broadcast=True)
 
 @socketio.on('predict')
 def handle_predict_event(json):
@@ -117,17 +168,17 @@ def handle_predict_event(json):
     if not telemetry:
         return
 
-    features = np.array([list(telemetry.values())])
-    normalized_features = (features - normalized_stats['mean']) / (normalized_stats['std'] + 1e-8)
+    with lock:
+        features = np.array([list(telemetry.values())])
+        normalized_features = (features - normalized_stats['mean']) / (normalized_stats['std'] + 1e-8)
 
-    reconstruction = autoencoder_model.predict(normalized_features)
-    reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
-    if_score = isolation_forest_model.decision_function(normalized_features)
+        reconstruction = autoencoder_model.predict(normalized_features)
+        reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
+        if_score = isolation_forest_model.decision_function(normalized_features)
+        svm_score = svm_model.decision_function(normalized_features)
 
-    is_anomaly = reconstruction_error > 0.5 or if_score[0] < 0
+    is_anomaly = reconstruction_error > 0.5 or if_score[0] < 0 or svm_score[0] < 0
 
-    anomaly_type = "Unknown"
-    severity = "low"
     if is_anomaly:
         power = telemetry.get('power', 100)
         temp = telemetry.get('temperature', 25)
@@ -141,8 +192,9 @@ def handle_predict_event(json):
             anomaly_type = "Sensor Malfunction"
             severity = "high"
 
+        anomaly_id = f"anomaly_{len(anomalies_detected)}_{datetime.utcnow().timestamp()}"
         anomaly = {
-            "id": f"anomaly_{len(anomalies_detected)}",
+            "id": anomaly_id,
             "satelliteName": satellite['name'],
             "anomaly_type": anomaly_type,
             "severity": severity,
@@ -150,11 +202,26 @@ def handle_predict_event(json):
         }
         anomalies_detected.append(anomaly)
 
-    emit('prediction_result', {
-        'is_anomaly': bool(is_anomaly),
-        'anomaly_type': anomaly_type,
-        'severity': severity,
-    })
+        frontend_anomaly = {
+            'id': anomaly_id,
+            'satelliteName': satellite.get('name', 'Unknown'),
+            'noradId': satellite.get('noradId'),
+            'anomalyResult': {
+                'anomaly_type': anomaly_type,
+                'severity': severity,
+                'reconstruction_error': reconstruction_error,
+                'if_score': if_score[0],
+                'svm_score': svm_score[0],
+            },
+            'timestamp': anomaly['timestamp'],
+            'location': {
+                'latitude': satellite.get('latitude', 0),
+                'longitude': satellite.get('longitude', 0),
+                'altitude': satellite.get('altitude', 0),
+            },
+            'isFlagged': False,
+        }
+        emit('new_anomaly', frontend_anomaly, broadcast=True)
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000)

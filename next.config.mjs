@@ -9,6 +9,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  generateEtags: false,
 }
 
 export default nextConfig

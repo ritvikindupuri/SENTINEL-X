@@ -1,13 +1,17 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import { realTimeInference, type DashboardData } from "@/lib/real-time-inference"
 import Header from "./components/Header"
-import OrbitalMap from "./components/OrbitalMap"
 import Log from "./components/Log";
 import RSOCharacterization from "./components/RSOCharacterization";
 import Subframes from "./components/Subframes";
 import ManualAlert from "./components/ManualAlert";
+
+const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
+  ssr: false,
+});
 
 const initialData: DashboardData = {
   header: { alerts: 0, rsos: 0, ttps: 0, score: 0 },
@@ -24,8 +28,10 @@ const initialData: DashboardData = {
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
+    setIsClient(true);
     realTimeInference.startRealTimeInference();
 
     const handleNewData = (data: DashboardData) => {
@@ -38,6 +44,10 @@ export default function Dashboard() {
       realTimeInference.stopRealTimeInference();
     };
   }, []);
+
+  if (!isClient) {
+    return null; // Render nothing on the server
+  }
 
   const handleFlagAnomaly = (anomalyId: string) => {
     realTimeInference.flagAnomaly(anomalyId);

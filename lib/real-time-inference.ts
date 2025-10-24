@@ -1,8 +1,9 @@
+
 // Real-time ML Inference Service for Satellite Anomaly Detection
 import { fetchSatellitePositions, type SatelliteData } from "./spacetrack-api"
-import { mlService, type SatelliteTelemetry, type AnomalyResult, type DashboardData as MLDashboardData } from "./ml-service"
-import { predictOrbit } from "./orbital-mechanics"
-import { MITREMapper, type ThreatIntelligence } from "./mitre-mapping"
+import io from "socket.io-client";
+
+const ML_SERVICE_URL = "http://localhost:5000";
 
 // (Keep existing interfaces)
 export interface RealTimeAnomaly {
@@ -72,15 +73,37 @@ class RealTimeInferenceService {
     totalSatellitesMonitored: 0,
     anomaliesDetected: 0,
   }
-  private dashboardData: MLDashboardData = {
-    subframes: [],
-    logs: [],
-    rsos: [],
-  };
-  private latestTelemetry: SatelliteTelemetry | null = null;
+  private socket: any;
 
   constructor() {
-    this.trainInitialModel();
+    this.socket = io(ML_SERVICE_URL, {
+      transports: ["websocket"],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 3000,
+    });
+
+    this.socket.on("connect", () => {
+      console.log("Connected to Python ML service");
+      if (typeof window !== "undefined") {
+        this.trainInitialModel();
+      }
+    });
+
+    this.socket.on("disconnect", () => {
+      console.log("Disconnected from Python ML service");
+    });
+
+    this.socket.on("dashboard_data", (data) => {
+      this.emitDashboardData(data);
+    });
+
+    this.socket.on("new_anomaly", (newAnomaly: RealTimeAnomaly) => {
+      console.log("Received new anomaly:", newAnomaly);
+      if (!this.anomalies.some(a => a.id === newAnomaly.id)) {
+        this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
+        this.metrics.anomaliesDetected = this.anomalies.length;
+      }
+    });
   }
 
   async trainInitialModel() {
@@ -88,7 +111,7 @@ class RealTimeInferenceService {
     const initialSatellites = await fetchSatellitePositions();
     if (initialSatellites.length > 0) {
       const trainingData = initialSatellites.map(this.convertSatelliteDataToTelemetry);
-      mlService.trainModel(trainingData, initialSatellites);
+      this.socket.emit("train", { data: trainingData, satellites: initialSatellites });
     }
   }
 
@@ -96,12 +119,8 @@ class RealTimeInferenceService {
     if (this.isRunning) return;
     this.isRunning = true;
 
-    mlService.onDashboardData((data) => {
-      this.dashboardData = data;
-    });
-
     this.inferenceInterval = setInterval(() => this.runInferenceCycle(), 30000); // 30 seconds
-    this.dashboardDataInterval = setInterval(() => this.requestDashboardData(), 5000); // 5 seconds
+    this.dashboardDataInterval = setInterval(() => this.emitDashboardData(), 2000);
   }
 
   stopRealTimeInference() {
@@ -111,47 +130,26 @@ class RealTimeInferenceService {
     if (this.dashboardDataInterval) clearInterval(this.dashboardDataInterval);
   }
 
-  private requestDashboardData() {
-    if (this.latestTelemetry) {
-      mlService.getDashboardData(this.latestTelemetry);
-    }
-  }
-
   private async runInferenceCycle() {
     try {
       const satellites = await fetchSatellitePositions();
       this.metrics.totalSatellitesMonitored = satellites.length;
 
-      for (const satellite of satellites) {
-        const telemetry = this.convertSatelliteDataToTelemetry(satellite);
-        this.latestTelemetry = telemetry;
-        const anomalyResult = await mlService.detectAnomaly(telemetry, satellite);
+      const telemetryData = satellites.map(s => ({
+          telemetry: this.convertSatelliteDataToTelemetry(s),
+          satellite: s,
+      }));
 
-        if (anomalyResult.is_anomaly) {
-          this.processNewAnomaly(satellite, anomalyResult);
-        }
+      if(telemetryData.length > 0) {
+        this.socket.emit("get_dashboard_data", { telemetry: telemetryData[0].telemetry });
       }
-      this.emitDashboardData();
 
+      for (const data of telemetryData) {
+          this.socket.emit("predict", data);
+      }
     } catch (error) {
       console.error("Error in inference cycle:", error);
     }
-  }
-
-  private processNewAnomaly(satellite: SatelliteData, anomalyResult: any) {
-    const newAnomaly: RealTimeAnomaly = {
-      id: `anomaly_${Date.now()}`,
-      satelliteName: satellite.name,
-      anomalyResult,
-      timestamp: new Date().toISOString(),
-      location: {
-        latitude: satellite.latitude,
-        longitude: satellite.longitude,
-        altitude: satellite.altitude,
-      },
-    };
-    this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
-    this.metrics.anomaliesDetected = this.anomalies.length;
   }
 
   flagAnomaly(anomalyId: string) {
@@ -178,12 +176,17 @@ class RealTimeInferenceService {
       },
       isFlagged: true, // Manual alerts are always flagged
     };
-    this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
-    this.metrics.anomaliesDetected = this.anomalies.length;
-    this.emitDashboardData();
+    this.socket.emit("manual_alert", newAnomaly);
   }
 
-  private emitDashboard.ts
+  private emitDashboardData(data: any = {}) {
+    const dashboardData = {
+      ...this.buildDashboardData(),
+      ...data,
+    };
+    this.onNewDataCallback(dashboardData);
+  }
+
   private buildDashboardData(): DashboardData {
     const score = this.calculateOverallScore();
     const now = new Date();
@@ -217,9 +220,9 @@ class RealTimeInferenceService {
       ],
       score: score,
       recentEvents: this.anomalies,
-      subframes: this.dashboardData.subframes,
-      logs: this.dashboardData.logs,
-      rsos: this.dashboardData.rsos,
+      subframes: [],
+      logs: [],
+      rsos: [],
     };
   }
 
@@ -237,7 +240,7 @@ class RealTimeInferenceService {
     return newDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
-  private convertSatelliteDataToTelemetry(satellite: SatelliteData): SatelliteTelemetry {
+  private convertSatelliteDataToTelemetry(satellite: SatelliteData): any {
     return {
       temperature: satellite.telemetry.temperature,
       power: satellite.telemetry.power,
