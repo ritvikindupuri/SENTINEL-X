@@ -1,6 +1,9 @@
 
 import os
+import logging
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+logging.basicConfig(level=logging.INFO)
 
 from flask import Flask
 from flask_socketio import SocketIO, emit
@@ -13,10 +16,13 @@ from datetime import datetime, timedelta
 import threading
 
 app = Flask(__name__)
+logging.info("Flask app created.")
 socketio = SocketIO(app, cors_allowed_origins="*")
+logging.info("SocketIO initialized.")
 
 # Thread lock for safe data access
 lock = threading.Lock()
+logging.info("Thread lock initialized.")
 
 # In-memory data stores
 anomalies_detected = []
@@ -36,9 +42,15 @@ def create_autoencoder(input_dim):
     autoencoder.compile(optimizer="adam", loss="mean_squared_error")
     return autoencoder
 
+logging.info("Creating Autoencoder model...")
 autoencoder_model = create_autoencoder(8)
+logging.info("Autoencoder model created.")
+logging.info("Creating Isolation Forest model...")
 isolation_forest_model = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
+logging.info("Isolation Forest model created.")
+logging.info("Creating SVM model...")
 svm_model = OneClassSVM(nu=0.1, kernel="rbf", gamma=0.1)
+logging.info("SVM model created.")
 
 normalized_stats = {
     'mean': np.zeros(8),
@@ -87,6 +99,35 @@ def _generate_rsos(telemetry):
             })
     return rsos
 
+def _generate_sparta_mitre_alignment():
+    sparta_ttp_mapping = {
+        "Power System Degradation": ["T001", "T005"],
+        "Thermal Anomaly": ["T002", "T006"],
+        "Sensor Malfunction": ["T003", "T007"],
+        "Data Exfiltration": ["T004", "T008"],
+    }
+
+    alignment = {
+        "T001": {"name": "On-board Power System Disruption", "coverage": 0},
+        "T002": {"name": "Thermal System Disruption", "coverage": 0},
+        "T003": {"name": "Sensor Data Manipulation", "coverage": 0},
+        "T004": {"name": "Data Exfiltration from Satellite", "coverage": 0},
+        "T005": {"name": "Power Supply Interference", "coverage": 0},
+        "T006": {"name": "Heating/Cooling System Attack", "coverage": 0},
+        "T007": {"name": "Sensor Calibration Attack", "coverage": 0},
+        "T008": {"name": "Unauthorized Data Transmission", "coverage": 0},
+    }
+
+    with lock:
+        for anomaly in anomalies_detected:
+            anomaly_type = anomaly.get('anomaly_type')
+            if anomaly_type in sparta_ttp_mapping:
+                for ttp_id in sparta_ttp_mapping[anomaly_type]:
+                    if ttp_id in alignment:
+                        alignment[ttp_id]["coverage"] = min(100, alignment[ttp_id]["coverage"] + 25) # Increment coverage
+
+    return [{"id": key, **value} for key, value in alignment.items()]
+
 def train_models_on_data(training_data):
     """Trains the ML models on the provided data."""
     print("Training models on provided data...")
@@ -129,6 +170,7 @@ def handle_get_dashboard_data(json):
         "subframes": _generate_subframes(telemetry),
         "logs": _generate_logs(),
         "rsos": _generate_rsos(telemetry),
+        "spartaMitreAlignment": _generate_sparta_mitre_alignment(),
     })
 
 @socketio.on('train')
@@ -224,4 +266,5 @@ def handle_predict_event(json):
         emit('new_anomaly', frontend_anomaly, broadcast=True)
 
 if __name__ == '__main__':
+    logging.info("Starting server...")
     socketio.run(app, host='0.0.0.0', port=5000)

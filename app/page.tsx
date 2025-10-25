@@ -8,6 +8,7 @@ import Log from "./components/Log";
 import RSOCharacterization from "./components/RSOCharacterization";
 import Subframes from "./components/Subframes";
 import ManualAlert from "./components/ManualAlert";
+import SpartaMitreAlignment from "./components/SpartaMitreAlignment";
 
 const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
   ssr: false,
@@ -78,8 +79,11 @@ export default function Dashboard() {
             <ManualAlert onManualAlert={handleManualAlert} />
           </div>
         </div>
-        <div className="col-span-12 row-span-4">
+        <div className="col-span-8 row-span-4">
           <Log logs={dashboardData.logs} />
+        </div>
+        <div className="col-span-4 row-span-4">
+          <SpartaMitreAlignment data={dashboardData.spartaMitreAlignment} />
         </div>
       </main>
     </div>

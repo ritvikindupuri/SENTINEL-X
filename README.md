@@ -9,6 +9,7 @@ Orbitwatch is a web-based application for real-time monitoring of satellite tele
 - **Manual Alerting:** Allows users to manually create and flag anomalies.
 - **Real-Time Updates:** The UI updates in real-time as new data is received and processed.
 - **Orbital Map:** A Leaflet-based map that displays the real-time location of satellites and anomalies.
+- **MITRE/SPARTA Mapping:** Maps detected anomalies to the SPARTA framework, providing insights into potential adversarial tactics, techniques, and procedures (TTPs).
 
 ## How it Works
 
@@ -96,7 +97,7 @@ To run Orbitwatch locally, you will need to have Node.js and Python installed.
 4.  **Set up SpaceTrack credentials:**
     You will need to create a file named `.env.local` in the root of the project and add your SpaceTrack credentials as follows:
     ```
-    SPACETRACK_USER=<your-username>
+    SPACETR sadde TRACK_USER=<your-username>
     SPACETRACK_PASSWORD=<your-password>
     ```
 5.  **Start the backend server:**
