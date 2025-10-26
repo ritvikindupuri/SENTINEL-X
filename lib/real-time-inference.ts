@@ -84,9 +84,7 @@ class RealTimeInferenceService {
 
     this.socket.on("connect", () => {
       console.log("Connected to Python ML service");
-      if (typeof window !== "undefined") {
-        this.trainInitialModel();
-      }
+      this.socket.emit("get_dashboard_data", {});
     });
 
     this.socket.on("disconnect", () => {
@@ -105,51 +103,16 @@ class RealTimeInferenceService {
       }
     });
   }
-
-  async trainInitialModel() {
-    console.log("Fetching initial data for model training...");
-    const initialSatellites = await fetchSatellitePositions();
-    if (initialSatellites.length > 0) {
-      const trainingData = initialSatellites.map(this.convertSatelliteDataToTelemetry);
-      this.socket.emit("train", { data: trainingData, satellites: initialSatellites });
-    }
-  }
-
   async startRealTimeInference() {
     if (this.isRunning) return;
     this.isRunning = true;
-
-    this.inferenceInterval = setInterval(() => this.runInferenceCycle(), 30000); // 30 seconds
-    this.dashboardDataInterval = setInterval(() => this.emitDashboardData(), 2000);
+    this.socket.connect();
   }
 
   stopRealTimeInference() {
     if (!this.isRunning) return;
     this.isRunning = false;
-    if (this.inferenceInterval) clearInterval(this.inferenceInterval);
-    if (this.dashboardDataInterval) clearInterval(this.dashboardDataInterval);
-  }
-
-  private async runInferenceCycle() {
-    try {
-      const satellites = await fetchSatellitePositions();
-      this.metrics.totalSatellitesMonitored = satellites.length;
-
-      const telemetryData = satellites.map(s => ({
-          telemetry: this.convertSatelliteDataToTelemetry(s),
-          satellite: s,
-      }));
-
-      if(telemetryData.length > 0) {
-        this.socket.emit("get_dashboard_data", { telemetry: telemetryData[0].telemetry });
-      }
-
-      for (const data of telemetryData) {
-          this.socket.emit("predict", data);
-      }
-    } catch (error) {
-      console.error("Error in inference cycle:", error);
-    }
+    this.socket.disconnect();
   }
 
   flagAnomaly(anomalyId: string) {
@@ -210,7 +173,7 @@ class RealTimeInferenceService {
       })),
       rsoClassification: this.anomalies.map(a => ({
         name: a.satelliteName,
-        status: a.anomalyResult.severity,
+        status: a.anomalyResult?.severity || 'unknown',
         score: Math.floor(Math.random() * 60) + 40,
       })),
       spartaMitreAlignment: [

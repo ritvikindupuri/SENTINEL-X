@@ -14,6 +14,9 @@ import numpy as np
 import random
 from datetime import datetime, timedelta
 import threading
+import requests
+import time
+from math import sin, cos, pi, pow
 
 app = Flask(__name__)
 logging.info("Flask app created.")
@@ -23,6 +26,92 @@ logging.info("SocketIO initialized.")
 # Thread lock for safe data access
 lock = threading.Lock()
 logging.info("Thread lock initialized.")
+
+def parse_space_track_tle(tle):
+    line1 = tle['TLE_LINE1']
+    line2 = tle['TLE_LINE2']
+    norad_id = int(tle['NORAD_CAT_ID'])
+    name = tle['OBJECT_NAME']
+
+    inclination = float(line2[8:16])
+    raan = float(line2[17:25])
+    arg_perigee = float(line2[34:42])
+    mean_anomaly = float(line2[43:51])
+    mean_motion = float(line2[52:63])
+
+    lat = sin(inclination * pi / 180) * sin(mean_anomaly * pi / 180) * 90
+    lng = ((raan + arg_perigee + mean_anomaly) % 360) - 180
+    altitude = pow(398600.4418 / ((mean_motion * 2 * pi) / 86400), 2 / 3) - 6371
+    velocity = (mean_motion * 2 * pi * (6371 + altitude)) / 86400 / 1000
+
+    now = datetime.utcnow()
+    sun_angle = cos(((now.hour * 15 + lng) * pi) / 180)
+    power = 80 + sun_angle * 20 + random.random() * 5
+    temperature = 20 + sun_angle * 30 - altitude / 100 + (random.random() - 0.5) * 10
+    communication = 90 + random.random() * 10
+
+    return {
+        'id': f"sat_{norad_id}",
+        'name': name,
+        'latitude': max(-90, min(90, lat)),
+        'longitude': lng,
+        'altitude': max(200, altitude),
+        'velocity': max(5, min(10, velocity)),
+        'timestamp': now.isoformat() + "Z",
+        'status': "operational",
+        'telemetry': {
+            'temperature': temperature,
+            'power': power,
+            'communication': communication,
+            'orientation': {
+                'roll': (arg_perigee + mean_anomaly) % 360,
+                'pitch': inclination,
+                'yaw': raan % 360,
+            },
+        },
+        'noradId': norad_id,
+        'tle': {
+            'line1': line1,
+            'line2': line2,
+        },
+    }
+
+def fetch_satellite_positions():
+    try:
+        space_track_username = os.getenv("SPACE_TRACK_USERNAME")
+        space_track_password = os.getenv("SPACE_TRACK_PASSWORD")
+
+        if not space_track_username or not space_track_password:
+            logging.error("Space-Track credentials not configured in environment variables.")
+            return []
+
+        logging.info("Fetching satellite TLE data from Space-Track.org...")
+
+        session = requests.Session()
+
+        auth_payload = {'identity': space_track_username, 'password': space_track_password}
+        auth_url = "https://www.space-track.org/ajaxauth/login"
+
+        auth_response = session.post(auth_url, data=auth_payload)
+        auth_response.raise_for_status()
+
+        satellite_ids = [25544, 28654, 39084, 25994, 27424, 39634, 41866, 20580, 40697, 40115]
+        tle_url = f"https://www.space-track.org/basicspacedata/query/class/tle_latest/NORAD_CAT_ID/{','.join(map(str, satellite_ids))}/orderby/NORAD_CAT_ID/format/json"
+
+        tle_response = session.get(tle_url)
+        tle_response.raise_for_status()
+
+        tle_data = tle_response.json()
+        satellites = [parse_space_track_tle(tle) for tle in tle_data]
+
+        logging.info(f"Successfully fetched {len(satellites)} satellite positions from Space-Track")
+        return satellites
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching satellite data: {e}")
+        return []
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        return []
 
 # In-memory data stores
 anomalies_detected = []
@@ -145,19 +234,52 @@ def train_models_on_data(training_data):
         svm_model.fit(normalized_features)
     print("Models trained successfully on provided data")
 
-def background_training_thread():
-    """Periodically retrains the models."""
+def background_inference_thread():
+    """Periodically fetches data, trains models, runs inference, and emits updates."""
+    initial_training_done = False
     while True:
-        socketio.sleep(3600)  # 1 hour
-        print("Starting periodic model retraining...")
-        with lock:
-            if len(telemetry_data_store) > 100: # Retrain if we have enough new data
+        satellites = fetch_satellite_positions()
+        if satellites:
+            with lock:
+                global monitored_satellites
+                monitored_satellites = satellites
+                telemetry_data = [convert_satellite_to_telemetry(s) for s in satellites]
+                telemetry_data_store.extend(telemetry_data)
+
+            if not initial_training_done and len(telemetry_data_store) > 0:
                 train_models_on_data(telemetry_data_store)
-                telemetry_data_store.clear() # Clear after training
+                initial_training_done = True
+
+            for satellite in satellites:
+                telemetry = convert_satellite_to_telemetry(satellite)
+                handle_predict_event({'telemetry': telemetry, 'satellite': satellite})
+
+            # Emit dashboard data after processing all satellites
+            if telemetry_data:
+                handle_get_dashboard_data({'telemetry': telemetry_data[0]})
+
+        socketio.sleep(60)  # Fetch new data every 60 seconds
+
+def convert_satellite_to_telemetry(satellite):
+    telemetry = satellite['telemetry']
+    return {
+        'temperature': telemetry['temperature'],
+        'power': telemetry['power'],
+        'communication': telemetry['communication'],
+        'orbit': satellite['altitude'],
+        'voltage': telemetry['power'] > 80 and 12 + (random.random() - 0.5) * 1 or 10 + random.random() * 2,
+        'solarPanelEfficiency': max(0, min(100, telemetry['power'] - 5 + random.random() * 10)),
+        'attitudeControl': max(0, min(100, 95 + (random.random() - 0.5) * 10)),
+        'fuelLevel': max(0, min(100, 80 + (random.random() - 0.5) * 30)),
+        'timestamp': datetime.utcnow().timestamp(),
+    }
 
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    if not hasattr(app, 'inference_thread_started'):
+        threading.Thread(target=background_inference_thread).start()
+        app.inference_thread_started = True
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -166,27 +288,12 @@ def handle_disconnect():
 @socketio.on('get_dashboard_data')
 def handle_get_dashboard_data(json):
     telemetry = json.get('telemetry', {})
-    emit('dashboard_data', {
+    socketio.emit('dashboard_data', {
         "subframes": _generate_subframes(telemetry),
         "logs": _generate_logs(),
         "rsos": _generate_rsos(telemetry),
         "spartaMitreAlignment": _generate_sparta_mitre_alignment(),
     })
-
-@socketio.on('train')
-def handle_train_event(json):
-    print('Received training data')
-    training_data = json.get('data')
-    with lock:
-        monitored_satellites.extend(json.get('satellites', []))
-        if training_data:
-            telemetry_data_store.extend(training_data)
-            train_models_on_data(training_data)
-
-    # Start the background training thread if it hasn't been started
-    if not hasattr(app, 'training_thread_started'):
-        threading.Thread(target=background_training_thread).start()
-        app.training_thread_started = True
 
 @socketio.on('manual_alert')
 def handle_manual_alert(json):
