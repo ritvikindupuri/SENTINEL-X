@@ -36,12 +36,39 @@ export interface LogEntry {
   message: string;
 }
 
+export interface RSOEventLog {
+  timestamp: string;
+  event: string;
+  category: string;
+}
+
 export interface RSO {
   id: string;
   name: string;
-  type: string;
-  threatLevel: "low" | "medium" | "high";
-  orbit: string;
+  rsoId: string;
+  catalogNumber: number;
+  country: string;
+  operator: string;
+  missionCapability: string;
+  techType: string;
+  orbitType: string;
+  perigeeKm: number;
+  inclination: number;
+  angleofDegree: string;
+  apogeeKm: number;
+  eccentricity: number;
+  operatingBandFrequency: string;
+  tleTimestamp: string;
+  size: string;
+  massKg: number;
+  payload: string;
+  launchDate: string;
+  operationalEndDate: string;
+  reentryDate: string;
+  intldes: string;
+  manufacture: string;
+  typeOfDataEntry: string;
+  eventLogs: RSOEventLog[];
 }
 
 export interface DashboardData {
@@ -53,7 +80,6 @@ export interface DashboardData {
   };
   alertsOverTime: Array<{ name: string; alerts: number }>;
   telemetryTimeline: Array<{ name: string; power: number; temp: number; comms: number }>;
-  rsoClassification: Array<{ name: string; status: string; score: number }>;
   spartaMitreAlignment: Array<{ id: string; name: string; coverage: number }>;
   score: number;
   recentEvents: RealTimeAnomaly[];
@@ -170,11 +196,6 @@ class RealTimeInferenceService {
         power: Math.random() * 20 + 80, // placeholder
         temp: Math.random() * 20 + 15, // placeholder
         comms: Math.random() * 10 + 90, // placeholder
-      })),
-      rsoClassification: this.anomalies.map(a => ({
-        name: a.satelliteName,
-        status: a.anomalyResult?.severity || 'unknown',
-        score: Math.floor(Math.random() * 60) + 40,
       })),
       spartaMitreAlignment: [
         { id: "T001", name: "Signal Jamming", coverage: 75 },

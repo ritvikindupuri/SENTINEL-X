@@ -172,20 +172,44 @@ def _generate_logs():
 def _generate_rsos(telemetry):
     rsos = []
     with lock:
-        for sat in monitored_satellites:
-            threat_level = "low"
-            if anomalies_detected:
-                latest_anomaly = anomalies_detected[-1]
-                if latest_anomaly['satelliteName'] == sat['name']:
-                    threat_level = latest_anomaly['severity']
+        if not monitored_satellites:
+            return []
 
-            rsos.append({
+        for sat in monitored_satellites:
+            tle = sat.get('tle', {})
+            line2 = tle.get('line2', '')
+
+            perigee = sat.get('altitude', 210)
+            apogee = perigee + random.uniform(50, 200)
+            inclination = float(line2[8:16]) if len(line2) > 16 else 53
+
+            launch_year = int(tle.get('LAUNCH_YEAR', '2022'))
+            launch_date = datetime(launch_year, random.randint(1,12), random.randint(1,28)).isoformat()
+
+            detailed_rso = {
                 "id": f"rso_{sat['noradId']}",
                 "name": sat['name'],
-                "type": "satellite",
-                "threatLevel": threat_level,
-                "orbit": telemetry.get('orbit', 'LEO'),
-            })
+                "type": "payload",
+                "threatScore": random.randint(40, 95),
+                "country": tle.get('COUNTRY_CODE', 'USA'),
+                "launchDate": launch_date,
+                "orbitalPeriod": round(1440 / float(line2[52:63]), 2) if len(line2) > 63 else 96.5,
+                "inclination": inclination,
+                "apogee": apogee,
+                "perigee": perigee,
+                "telemetry": {
+                    "status": "nominal" if sat.get('status') == 'operational' else 'degraded',
+                    "power": sat.get('telemetry', {}).get('power', 0),
+                    "temperature": sat.get('telemetry', {}).get('temperature', 0),
+                    "lastContact": sat.get('timestamp'),
+                },
+                "mitigations": {
+                    "maneuverability": random.choice([True, False]),
+                    "commsJamming": random.choice([True, False]),
+                    "sensorBlinding": random.choice([True, False]),
+                },
+            }
+            rsos.append(detailed_rso)
     return rsos
 
 def _generate_sparta_mitre_alignment():
