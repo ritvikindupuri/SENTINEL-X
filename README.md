@@ -2,7 +2,7 @@
 
 **Orbitwatch** is a comprehensive, real-time satellite anomaly detection platform. It provides a high-fidelity dashboard for monitoring satellite health, visualizing orbital data, and detecting potential anomalies using a powerful Python-based machine learning backend.
 
-![Orbitwatch Screenshot](https://i.imgur.com/8i2E26E.png)
+by: Ritvik Indupuri
 
 ---
 
