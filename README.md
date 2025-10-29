@@ -1,6 +1,8 @@
 # Orbitwatch: Real-Time Satellite Anomaly Detection
 
-**Orbitwatch** is a comprehensive, real-time satellite anomaly detection platform. It provides a high-fidelity dashboard for monitoring satellite health, visualizing orbital data, and detecting potential anomalies using a powerful Python-based machine learning.
+**Orbitwatch** is a comprehensive, real-time satellite anomaly detection platform. It provides a high-fidelity dashboard for monitoring satellite health, visualizing orbital data, and detecting potential anomalies using a powerful Python-based machine learning backend.
+
+![Orbitwatch Screenshot](https://i.imgur.com/8i2E26E.png)
 
 ---
 
@@ -11,8 +13,7 @@
 - [The Machine Learning Pipeline](#the-machine-learning-pipeline)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Configuration](#configuration)
+  - [Installation & Configuration](#installation--configuration)
   - [Running the Application](#running-the-application)
 - [Technology Stack](#technology-stack)
 
@@ -82,7 +83,7 @@ Follow these instructions to set up and run the Orbitwatch application on your l
 -   [Python](https://www.python.org/) (v3.9 or later)
 -   A [Space-Track.org](https://www.space-track.org/) account with a verified username and password.
 
-### Installation
+### Installation & Configuration
 
 1.  **Clone the Repository:**
     ```bash
@@ -90,32 +91,35 @@ Follow these instructions to set up and run the Orbitwatch application on your l
     cd orbitwatch
     ```
 
-2.  **Install Frontend Dependencies:**
+2.  **Set Up Space-Track Credentials:**
+    You need to set your Space-Track.org credentials as environment variables.
+    *   **On macOS or Linux:**
+        ```bash
+        export SPACE_TRACK_USERNAME="your_username"
+        export SPACE_TRACK_PASSWORD="your_password"
+        ```
+    *   **On Windows:**
+        ```bash
+        set SPACE_TRACK_USERNAME="your_username"
+        set SPACE_TRACK_PASSWORD="your_password"
+        ```
+
+3.  **Install Frontend Dependencies:**
     ```bash
     npm install
     ```
 
-3.  **Install Backend Dependencies:**
+4.  **Install Backend Dependencies:**
     ```bash
-    pip install -r services/ml_service/requirements.txt
+    pip install -r requirements.txt
     ```
-
-### Configuration
-
-You will need to provide your Space-Track.org credentials to the application. To do this, create a `.env.local` file in the root of the project and add the following lines:
-
-```
-SPACE_TRACK_USERNAME="your-space-track-username"
-SPACE_TRACK_PASSWORD="your-space-track-password"
-```
-
-**Note:** This file is included in the `.gitignore` to ensure that your credentials are not accidentally committed to the repository.
 
 ### Running the Application
 
 You will need to run the backend and frontend servers in separate terminals.
 
 1.  **Start the Python ML Backend:**
+    *Make sure your Space-Track credentials are set as environment variables in this terminal.*
     ```bash
     python3 services/ml_service/main.py
     ```
