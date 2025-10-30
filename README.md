@@ -15,10 +15,10 @@ Orbitwatch is a real-time, full-stack satellite tracking and anomaly detection d
 
 The Orbitwatch application operates as a real-time data processing pipeline. Here is a step-by-step breakdown of the entire workflow, from data acquisition to visualization.
 
-### 1. **Data Extraction (The "E" in ETL)**
+### 1. **Data Extraction: API Call Mechanics**
 
--   **Authentication & API Request:** The process begins when the user enters their SpaceTrack.org credentials into the settings dialog in the UI. These are sent to the Python backend via a secure WebSocket connection and stored in-memory for the session.
--   **Fetching TLE Data:** The backend service uses these credentials to make a direct, authenticated HTTP request to the SpaceTrack API. It fetches the latest **Two-Line Element (TLE)** data for a predefined list of satellites.
+-   **Authentication:** The process begins when the user submits their credentials via the UI. The Python backend receives these and initiates a session with the SpaceTrack API. This is done by sending a `POST` request to `https://www.space-track.org/ajaxauth/login` with the `identity` (username) and `password`. The session cookies returned are automatically managed by the `requests` library for subsequent calls.
+-   **TLE Data Request:** Once authenticated, the backend service constructs a `GET` request to the SpaceTrack API's `basicspacedata` endpoint to fetch the latest **Two-Line Element (TLE)** data. The request specifies the exact satellites to query by their NORAD CAT ID, orders the results, and requests the data in JSON format for easy parsing.
 
 ### 2. **Data Structure (Structured, Not Unstructured)**
 
@@ -40,13 +40,12 @@ The Orbitwatch application operates as a real-time data processing pipeline. Her
     3.  **Scikit-learn One-Class SVM:** Identifies novel, unseen data points that don't conform to the norm.
 -   **Threat Scoring:** The raw output from each model is normalized into a 0-100 score. These are averaged to produce an "Overall Threat Score." If the score exceeds a certain threshold, an **anomaly** is flagged.
 
-### 5. **Data Streaming & Visualization (The "Load" equivalent)**
+### 5. **Data Streaming Architecture: Real-Time Visualization**
 
--   **WebSocket Emission:** When an anomaly is detected, the backend service "loads" the data by emitting a `new_anomaly` event via **Socket.IO**. This event broadcasts the complete, transformed data packet (including location, telemetry, and threat scores) to all connected frontend clients.
--   **Real-Time UI Updates:** The Next.js frontend listens for this event. When a new anomaly packet is received:
-    -   The **Leaflet.js map** updates with the satellite's new position.
-    -   The **RSO Characterization** panel populates with the latest telemetry and threat score breakdown.
-    -   The header statistics (Alerts, Score, etc.) are updated.
+-   **WebSocket Connection:** The frontend and backend maintain a persistent, bidirectional communication channel using **Socket.IO**. When the frontend application loads, it establishes a WebSocket connection to the Python server.
+-   **Event-Based Broadcasting:** When the ML pipeline flags an anomaly, the backend service does not wait for the frontend to request it. Instead, it proactively **broadcasts** a `new_anomaly` event to all connected clients. This event contains a full JSON payload with all the transformed data for the anomalous satellite.
+-   **Frontend Event Listeners:** The Next.js frontend has event listeners that are constantly waiting for the `new_anomaly` event. When this event is received, it triggers a state update in the React application.
+-   **Dynamic Component Rendering:** The state update causes all relevant UI components—the map, the RSO panel, the charts, and the header stats—to re-render with the new data, ensuring the user sees the latest information instantly.
 
 This entire cycle—from fetching to transformation to analysis to visualization—repeats periodically, creating a seamless, real-time intelligence dashboard.
 
