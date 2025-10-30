@@ -11,9 +11,10 @@
 - [Features](#features)
 - [Architecture](#architecture)
 - [The Machine Learning Pipeline](#the-machine-learning-pipeline)
+- [Dashboard Components Explained](#dashboard-components-explained)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
-  - [Installation & Configuration](#installation--configuration)
+  - [Installation](#installation)
   - [Running the Application](#running-the-application)
 - [Technology Stack](#technology-stack)
 
@@ -25,6 +26,7 @@ Orbitwatch is designed to provide a complete, end-to-end solution for satellite 
 
 -   **Real-Time Dashboard:** A dynamic and intuitive user interface that updates in real-time without the need for page reloads. All components, from key performance indicators to charts, are streamed live from the backend.
 -   **Interactive Orbital Map:** A lightweight and performant orbital map, built with Leaflet.js, that visualizes satellite positions and highlights anomalies as they are detected.
+-   **In-App Spacetrack Configuration:** Securely configure your SpaceTrack.org credentials directly within the application. Once saved, Orbitwatch will immediately begin ingesting and displaying real-time satellite data.
 -   **Hybrid Anomaly Detection:** A sophisticated backend powered by a combination of TensorFlow and Scikit-learn models to provide robust and sensitive anomaly detection.
 -   **Rich Data Visualization:** The dashboard includes a variety of components to provide a deep understanding of the satellite network's health, including:
     -   **RSO Characterization:** Panels that provide detailed information on Resident Space Objects.
@@ -43,7 +45,7 @@ graph TD
     A[Space-Track.org API] -->|1. Fetches TLE Data| B(Python ML Backend);
     B -->|3. Streams Processed Data via WebSocket| C{Next.js Frontend};
     C -->|2. Renders Real-Time Dashboard| D(User);
-    C -->|4. Sends User Actions| B;
+    C -->|4. Sends User Actions & Credentials| B;
 ```
 
 1.  **Data Source (Space-Track.org API):** The application uses the official Space-Track.org API as its source of live satellite Two-Line Element (TLE) data.
@@ -64,12 +66,25 @@ The heart of the Orbitwatch backend is its sophisticated machine learning pipeli
 
 -   **Data Source:** The models are trained exclusively on **real, live TLE data** from Space-Track. This data is parsed into a variety of telemetry features, including power, temperature, and altitude, to provide a comprehensive view of a satellite's operational health.
 -   **Hybrid Model Approach:** Orbitwatch uses a combination of models to ensure the highest level of accuracy:
-    -   **TensorFlow Autoencoder:** This neural network learns a baseline of normal operational patterns and is excellent at detecting subtle deviations from that baseline.
-    -   **Scikit-learn Isolation Forest:** An ensemble model that excels at identifying statistical outliers in the data.
-    -   **Scikit-learn One-Class SVM:** A classic and powerful algorithm for novelty and outlier detection.
--   **Training:** The models are trained on an initial batch of live data that is fetched when the backend server starts. The system is designed for periodic retraining, allowing it to adapt to new patterns over time.
+    -   **TensorFlow Autoencoder:** This neural network learns a baseline of normal operational patterns and is excellent at detecting subtle deviations from that baseline. It works by compressing the input data and then reconstructing it; a high reconstruction error indicates an anomaly.
+    -   **Scikit-learn Isolation Forest:** An ensemble model that excels at identifying statistical outliers in the data. It works by randomly partitioning the data, and anomalies are the points that are easiest to "isolate" from the rest of the data.
+    -   **Scikit-learn One-Class SVM:** A classic and powerful algorithm for novelty and outlier detection. It is trained on "normal" data and learns a boundary around it. Any new data point that falls outside this boundary is considered an anomaly.
+-   **Training:** The models are trained on an initial batch of live data that is fetched when the backend server starts and the user provides their SpaceTrack credentials. The system is designed for periodic retraining, allowing it to adapt to new patterns over time.
 
 By combining the results from these three models, Orbitwatch is able to detect a wide range of potential anomalies with a high degree of confidence.
+
+---
+
+## Dashboard Components Explained
+
+-   **Threat Score:** A proprietary score calculated based on the severity and frequency of detected anomalies, as well as the satellite's operational importance.
+-   **Orbital Parameters:** Key data points that describe the satellite's orbit, including:
+    -   **Inclination:** The angle of the orbit in relation to the Earth's equator.
+    -   **RAAN (Right Ascension of the Ascending Node):** The angle from the vernal equinox to the point where the orbit crosses the equatorial plane from south to north.
+    -   **Argument of Perigee:** The angle from the ascending node to the perigee (the point in the orbit closest to Earth).
+-   **TTPs (Tactics, Techniques, and Procedures):** The dashboard maps detected anomalies to the SPARTA/MITRE framework to provide context for threat intelligence. This helps to understand the potential intent behind an anomaly.
+-   **RSOs (Resident Space Objects):** The dashboard provides detailed characterization of RSOs, including their country of origin, launch date, and orbital period.
+-   **Alerts:** Real-time alerts are generated whenever an anomaly is detected by the machine learning pipeline. Users can also manually create alerts.
 
 ---
 
@@ -83,7 +98,7 @@ Follow these instructions to set up and run the Orbitwatch application on your l
 -   [Python](https://www.python.org/) (v3.9 or later)
 -   A [Space-Track.org](https://www.space-track.org/) account with a verified username and password.
 
-### Installation & Configuration
+### Installation
 
 1.  **Clone the Repository:**
     ```bash
@@ -91,25 +106,12 @@ Follow these instructions to set up and run the Orbitwatch application on your l
     cd orbitwatch
     ```
 
-2.  **Set Up Space-Track Credentials:**
-    You need to set your Space-Track.org credentials as environment variables.
-    *   **On macOS or Linux:**
-        ```bash
-        export SPACE_TRACK_USERNAME="your_username"
-        export SPACE_TRACK_PASSWORD="your_password"
-        ```
-    *   **On Windows:**
-        ```bash
-        set SPACE_TRACK_USERNAME="your_username"
-        set SPACE_TRACK_PASSWORD="your_password"
-        ```
-
-3.  **Install Frontend Dependencies:**
+2.  **Install Frontend Dependencies:**
     ```bash
     npm install
     ```
 
-4.  **Install Backend Dependencies:**
+3.  **Install Backend Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
@@ -119,7 +121,6 @@ Follow these instructions to set up and run the Orbitwatch application on your l
 You will need to run the backend and frontend servers in separate terminals.
 
 1.  **Start the Python ML Backend:**
-    *Make sure your Space-Track credentials are set as environment variables in this terminal.*
     ```bash
     python3 services/ml_service/main.py
     ```
@@ -131,7 +132,11 @@ You will need to run the backend and frontend servers in separate terminals.
     ```
     The frontend development server will start on `http://localhost:3000`.
 
-You can now open your browser and navigate to `http://localhost:3000` to see the Orbitwatch application in action.
+3.  **Configure Space-Track Credentials:**
+    -   Open your browser and navigate to `http://localhost:3000`.
+    -   Click on the **Settings** icon in the header.
+    -   Enter your Space-Track.org username and password, and click **Save**.
+    -   The application will now start fetching and displaying real-time satellite data.
 
 ---
 
@@ -153,3 +158,4 @@ You can now open your browser and navigate to `http://localhost:3000` to see the
 -   **Socket.IO Client:** For connecting to the backend WebSocket server.
 -   **Recharts:** A composable charting library built on React components.
 -   **Tailwind CSS:** A utility-first CSS framework for rapid UI development.
+-   **ShadCN/UI:** A collection of accessible and reusable UI components.
