@@ -193,8 +193,8 @@ class RealTimeInferenceService {
     return {
       header: {
         alerts: this.anomalies.length,
-        rsos: this.metrics.totalSatellitesMonitored,
-        ttps: 4, // static for now
+        rsos: this.monitoredSatellites.length,
+        ttps: (data.spartaMitreAlignment || []).filter(ttp => ttp.coverage > 0).length,
         score: score,
       },
       alertsOverTime: this.anomalies.slice(0, 10).map((a, i) => ({

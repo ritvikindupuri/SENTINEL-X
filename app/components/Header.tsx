@@ -33,7 +33,7 @@ const Header = ({ alerts, rsos, ttps, score, onSettingsClick }: HeaderProps) => 
           <p className="text-sm text-gray-400">Score</p>
           <p className="text-2xl font-bold text-red-500">{score}</p>
         </div>
-        <button onClick={onSettingsClick} className="p-2 rounded-full hover:bg-gray-700" aria-label="Settings">
+        <button onClick={onSettingsClick} className="p-2 rounded-full hover:bg-gray-700" aria-label="Settings" data-testid="settings-button">
           <SettingsIcon className="w-6 h-6 text-gray-400" />
         </button>
       </div>

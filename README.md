@@ -11,6 +11,19 @@ Orbitwatch is a real-time, full-stack satellite tracking and anomaly detection d
 -   **Detailed RSO Characterization:** Offers an in-depth look at each satellite, including its threat score, telemetry data, and key orbital parameters.
 -   **Threat Score Breakdown:** Provides a transparent view into the anomaly detection process by showing the individual scores from each machine learning model.
 
+## Dashboard Header Metrics Explained
+
+The main header provides a quick, at-a-glance summary of the current operational status. Here is how each metric is calculated:
+
+-   **Alerts:** This is a real-time count of the total number of unique anomalies that have been detected in the current session.
+-   **RSOs (Resident Space Objects):** This represents the total number of unique satellites currently being monitored by the system.
+-   **TTPs (Tactics, Techniques, and Procedures):** This metric shows the number of unique MITRE ATT&CK TTPs that have been associated with the detected anomalies. The system maps each anomaly type (e.g., "Power System Degradation") to specific TTPs, and this number reflects the breadth of tactical behaviors observed.
+-   **Score:** This is an overall threat score for the system, calculated by averaging the severity of all active alerts. Each anomaly's severity ("low", "medium", "high", "critical") is assigned a numerical value, and the average of these values determines the final score.
+
+### A Note on "Payload" Data
+
+In the detailed satellite view, the **Payload** field (e.g., "Imaging Sensor, 8Ghz Transponder") is currently **simulated data**. It is a placeholder intended to represent the type of equipment a satellite is carrying and to add realism to the data model. It does not reflect live data from the SpaceTrack API.
+
 ## End-to-End Data Flow
 
 The Orbitwatch application operates as a real-time data processing pipeline. Here is a step-by-step breakdown of the entire workflow, from data acquisition to visualization.

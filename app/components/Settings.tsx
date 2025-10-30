@@ -31,7 +31,7 @@ export default function Settings({ isOpen, onClose, onSave }: SettingsProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px]" data-testid="settings-dialog">
         <DialogHeader>
           <DialogTitle>SpaceTrack Credentials</DialogTitle>
           <DialogDescription>
@@ -45,6 +45,7 @@ export default function Settings({ isOpen, onClose, onSave }: SettingsProps) {
             </Label>
             <Input
               id="username"
+              name="identity"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="col-span-3"
@@ -56,6 +57,7 @@ export default function Settings({ isOpen, onClose, onSave }: SettingsProps) {
             </Label>
             <Input
               id="password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -65,7 +67,7 @@ export default function Settings({ isOpen, onClose, onSave }: SettingsProps) {
         </div>
         <DialogFooter>
           <Button type="submit" onClick={handleSave}>
-            Save changes
+            Save Credentials
           </Button>
         </DialogFooter>
       </DialogContent>
