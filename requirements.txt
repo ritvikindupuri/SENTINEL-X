@@ -58,3 +58,4 @@ Werkzeug==2.0.3
 wheel==0.45.1
 wrapt==2.0.0
 wsproto==1.2.0
+sgp4==2.22

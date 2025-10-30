@@ -24,4 +24,4 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+next-env.d.ts\n# Log files\nbackend.log\nfrontend.log\nnpm_output.log\ndev_server.log\n\n# Jules scratch directory\njules-scratch/
