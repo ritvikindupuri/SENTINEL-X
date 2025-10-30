@@ -8,23 +8,35 @@ import type { RealTimeAnomaly } from "@/lib/real-time-inference";
 import { Icon } from "leaflet";
 
 interface OrbitalMapProps {
+  satellites: any[];
   anomalies: RealTimeAnomaly[];
   onFlagAnomaly: (anomalyId: string) => void;
+  onSatelliteClick: (satellite: any) => void;
 }
 
-const OrbitalMap = ({ anomalies, onFlagAnomaly }: OrbitalMapProps) => {
-  const getIcon = (severity: "low" | "medium" | "high", isFlagged?: boolean) => {
-    const color = {
-      low: "#28a745", // Green
-      medium: "#ffc107", // Yellow
-      high: "#dc3545", // Red
-    }[severity];
+const OrbitalMap = ({ satellites, anomalies, onFlagAnomaly, onSatelliteClick }: OrbitalMapProps) => {
+  const getIcon = (satellite) => {
+    const anomaly = anomalies.find(a => a.noradId === satellite.noradId);
 
-    const strokeColor = isFlagged ? "#00f6ff" : "white"; // Cyan for flagged, white otherwise
-    const strokeWidth = isFlagged ? "4" : "2";
+    if (anomaly) {
+      const color = {
+        low: "#28a745", // Green
+        medium: "#ffc107", // Yellow
+        high: "#dc3545", // Red
+      }[anomaly.anomalyResult.severity];
+      const strokeColor = anomaly.isFlagged ? "#00f6ff" : "white";
+      const strokeWidth = anomaly.isFlagged ? "4" : "2";
+      return new Icon({
+        iconUrl: `data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3e%3ccircle cx='12' cy='12' r='10' fill='${color}' stroke='${strokeColor}' stroke-width='${strokeWidth}'/%3e%3c/svg%3e`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 24],
+        popupAnchor: [0, -24],
+      });
+    }
 
+    // Default icon for non-anomalous satellites
     return new Icon({
-      iconUrl: `data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3e%3ccircle cx='12' cy='12' r='10' fill='${color}' stroke='${strokeColor}' stroke-width='${strokeWidth}'/%3e%3c/svg%3e`,
+      iconUrl: `data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3e%3ccircle cx='12' cy='12' r='8' fill='%23888888' stroke='white' stroke-width='2'/%3e%3c/svg%3e`,
       iconSize: [24, 24],
       iconAnchor: [12, 24],
       popupAnchor: [0, -24],
@@ -43,32 +55,40 @@ const OrbitalMap = ({ anomalies, onFlagAnomaly }: OrbitalMapProps) => {
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         />
-        {anomalies.map((a) => (
-          <Marker
-            key={a.id}
-            position={[a.location.latitude, a.location.longitude]}
-            icon={getIcon(a.anomalyResult.severity, a.isFlagged)}
-          >
-            <Popup>
-              <div className="text-black">
-                <b>{a.satelliteName}</b>
-                <br />
-                Anomaly: {a.anomalyResult.anomaly_type}
-                <br />
-                Severity: {a.anomalyResult.severity}
-                <br />
-                {!a.isFlagged && (
-                  <button
-                    onClick={() => onFlagAnomaly(a.id)}
-                    className="mt-2 px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    Flag
-                  </button>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {satellites.map((sat) => {
+          const anomaly = anomalies.find(a => a.noradId === sat.noradId);
+          return (
+            <Marker
+              key={sat.id}
+              position={[sat.latitude, sat.longitude]}
+              icon={getIcon(sat)}
+              eventHandlers={{
+                click: () => onSatelliteClick(sat),
+              }}
+            >
+              {anomaly && (
+                <Popup>
+                  <div className="text-black">
+                    <b>{anomaly.satelliteName}</b>
+                    <br />
+                    Anomaly: {anomaly.anomalyResult.anomaly_type}
+                    <br />
+                    Severity: {anomaly.anomalyResult.severity}
+                    <br />
+                    {!anomaly.isFlagged && (
+                      <button
+                        onClick={() => onFlagAnomaly(anomaly.id)}
+                        className="mt-2 px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      >
+                        Flag
+                      </button>
+                    )}
+                  </div>
+                </Popup>
+              )}
+            </Marker>
+          );
+        })}
       </MapContainer>
     </div>
   );

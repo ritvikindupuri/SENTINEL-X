@@ -9,6 +9,8 @@ import RSOCharacterization from "./components/RSOCharacterization";
 import Subframes from "./components/Subframes";
 import ManualAlert from "./components/ManualAlert";
 import SpartaMitreAlignment from "./components/SpartaMitreAlignment";
+import RsoDetailView from "./components/RsoDetailView";
+import Settings from "./components/Settings";
 
 const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
   ssr: false,
@@ -25,14 +27,14 @@ const initialData: DashboardData = {
   subframes: [],
   logs: [],
   rsos: [],
+  monitoredSatellites: [],
 };
-
-import Settings from "./components/Settings";
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
   const [isClient, setIsClient] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [selectedSatellite, setSelectedSatellite] = useState(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -53,6 +55,14 @@ export default function Dashboard() {
     return null; // Render nothing on the server
   }
 
+  const handleSatelliteClick = (satellite) => {
+    setSelectedSatellite(satellite);
+  };
+
+  const handleCloseDetailView = () => {
+    setSelectedSatellite(null);
+  };
+
   const handleFlagAnomaly = (anomalyId: string) => {
     realTimeInference.flagAnomaly(anomalyId);
   };
@@ -69,11 +79,14 @@ export default function Dashboard() {
     <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
       <Header {...dashboardData.header} onSettingsClick={() => setIsSettingsOpen(true)} />
       <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={handleSaveCredentials} />
+      <RsoDetailView satellite={selectedSatellite} open={!!selectedSatellite} onOpenChange={handleCloseDetailView} />
       <main className="flex-1 p-6 grid grid-cols-12 grid-rows-12 gap-6">
         <div className="col-span-8 row-span-8">
           <OrbitalMap
+            satellites={dashboardData.monitoredSatellites}
             anomalies={dashboardData.recentEvents}
             onFlagAnomaly={handleFlagAnomaly}
+            onSatelliteClick={handleSatelliteClick}
           />
         </div>
         <div className="col-span-4 row-span-8 flex flex-col gap-6">

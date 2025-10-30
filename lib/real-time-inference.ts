@@ -86,11 +86,13 @@ export interface DashboardData {
   subframes: Subframe[];
   logs: LogEntry[];
   rsos: RSO[];
+  monitoredSatellites: any[];
 }
 
 
 class RealTimeInferenceService {
   private anomalies: RealTimeAnomaly[] = []
+  private monitoredSatellites: any[] = []
   private isRunning = false
   private inferenceInterval: NodeJS.Timeout | null = null
   private dashboardDataInterval: NodeJS.Timeout | null = null;
@@ -118,6 +120,9 @@ class RealTimeInferenceService {
     });
 
     this.socket.on("dashboard_data", (data) => {
+      if (data.monitoredSatellites) {
+        this.monitoredSatellites = data.monitoredSatellites;
+      }
       this.emitDashboardData(data);
     });
 
@@ -212,6 +217,7 @@ class RealTimeInferenceService {
       subframes: [],
       logs: [],
       rsos: [],
+      monitoredSatellites: this.monitoredSatellites,
     };
   }
 
