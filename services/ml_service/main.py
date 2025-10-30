@@ -190,11 +190,23 @@ def _generate_rsos(telemetry):
             launch_year = int(tle.get('LAUNCH_YEAR', '2022'))
             launch_date = datetime(launch_year, random.randint(1,12), random.randint(1,28)).isoformat()
 
+            # Find the latest anomaly for this satellite to get the scores
+            latest_anomaly = next((a for a in reversed(anomalies_detected) if a.get('satelliteName') == sat['name']), None)
+
+            threat_scores = {
+                "autoencoder": latest_anomaly.get('autoencoder_score', 0) if latest_anomaly else 0,
+                "isolationForest": latest_anomaly.get('if_score', 0) if latest_anomaly else 0,
+                "svm": latest_anomaly.get('svm_score', 0) if latest_anomaly else 0,
+            }
+
+            overall_threat_score = int(np.mean(list(threat_scores.values())))
+
             detailed_rso = {
                 "id": f"rso_{sat['noradId']}",
                 "name": sat['name'],
                 "type": "payload",
-                "threatScore": random.randint(40, 95),
+                "threatScore": overall_threat_score,
+                "threatScores": threat_scores,
                 "country": tle.get('COUNTRY_CODE', 'USA'),
                 "launchDate": launch_date,
                 "orbitalPeriod": round(1440 / float(line2[52:63]), 2) if len(line2) > 63 else 96.5,
@@ -365,6 +377,13 @@ def handle_manual_alert(json):
         anomalies_detected.append(anomaly)
     emit('new_anomaly', json, broadcast=True)
 
+def _normalize_score(score, score_type):
+    if score_type == 'autoencoder':
+        return min(100, int(score * 200)) # Scale error to 0-100
+    elif score_type in ['if', 'svm']:
+        return max(0, min(100, int(50 - score * 50))) # Map -1 to 100, 1 to 0
+    return 0
+
 @socketio.on('predict')
 def handle_predict_event(json):
     telemetry = json.get('telemetry')
@@ -378,10 +397,14 @@ def handle_predict_event(json):
 
         reconstruction = autoencoder_model.predict(normalized_features)
         reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
-        if_score = isolation_forest_model.decision_function(normalized_features)
-        svm_score = svm_model.decision_function(normalized_features)
+        if_score = isolation_forest_model.decision_function(normalized_features)[0]
+        svm_score = svm_model.decision_function(normalized_features)[0]
 
-    is_anomaly = reconstruction_error > 0.5 or if_score[0] < 0 or svm_score[0] < 0
+    autoencoder_threat_score = _normalize_score(reconstruction_error, 'autoencoder')
+    if_threat_score = _normalize_score(if_score, 'if')
+    svm_threat_score = _normalize_score(svm_score, 'svm')
+
+    is_anomaly = autoencoder_threat_score > 75 or if_threat_score > 75 or svm_threat_score > 75
 
     if is_anomaly:
         power = telemetry.get('power', 100)
@@ -403,6 +426,9 @@ def handle_predict_event(json):
             "anomaly_type": anomaly_type,
             "severity": severity,
             "timestamp": datetime.utcnow().isoformat() + "Z",
+            "autoencoder_score": autoencoder_threat_score,
+            "if_score": if_threat_score,
+            "svm_score": svm_threat_score,
         }
         anomalies_detected.append(anomaly)
 
@@ -414,8 +440,8 @@ def handle_predict_event(json):
                 'anomaly_type': anomaly_type,
                 'severity': severity,
                 'reconstruction_error': reconstruction_error,
-                'if_score': if_score[0],
-                'svm_score': svm_score[0],
+                'if_score': if_score,
+                'svm_score': svm_score,
             },
             'timestamp': anomaly['timestamp'],
             'location': {

@@ -11,6 +11,7 @@
 - [Features](#features)
 - [Architecture](#architecture)
 - [The Machine Learning Pipeline](#the-machine-learning-pipeline)
+- [SGP4 Integration](#sgp4-integration)
 - [Dashboard Components Explained](#dashboard-components-explained)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -64,7 +65,19 @@ This decoupled architecture ensures a clean separation of concerns, making the s
 
 The heart of the Orbitwatch backend is its sophisticated machine learning pipeline, which is designed for robust and sensitive anomaly detection.
 
--   **Data Source:** The models are trained exclusively on **real, live TLE data** from Space-Track. This data is parsed into a variety of telemetry features, including power, temperature, and altitude, to provide a comprehensive view of a satellite's operational health.
+-   **Inputs:** The models are trained on a feature set extracted from the TLE data, which includes:
+    -   `temperature`: The satellite's internal temperature.
+    -   `power`: The satellite's power level.
+    -   `communication`: The strength of the satellite's communication signal.
+    -   `orbit`: The satellite's altitude.
+    -   `voltage`: The satellite's voltage.
+    -   `solarPanelEfficiency`: The efficiency of the satellite's solar panels.
+    -   `attitudeControl`: A measure of the satellite's orientation control.
+    -   `fuelLevel`: The satellite's remaining fuel level.
+-   **Outputs:** The models produce the following outputs:
+    -   `reconstruction_error`: The reconstruction error from the TensorFlow Autoencoder.
+    -   `if_score`: The anomaly score from the Isolation Forest model.
+    -   `svm_score`: The anomaly score from the One-Class SVM model.
 -   **Hybrid Model Approach:** Orbitwatch uses a combination of models to ensure the highest level of accuracy:
     -   **TensorFlow Autoencoder:** This neural network learns a baseline of normal operational patterns and is excellent at detecting subtle deviations from that baseline. It works by compressing the input data and then reconstructing it; a high reconstruction error indicates an anomaly.
     -   **Scikit-learn Isolation Forest:** An ensemble model that excels at identifying statistical outliers in the data. It works by randomly partitioning the data, and anomalies are the points that are easiest to "isolate" from the rest of the data.
@@ -75,9 +88,19 @@ By combining the results from these three models, Orbitwatch is able to detect a
 
 ---
 
+## SGP4 Integration
+
+The Simplified General Perturbations 4 (SGP4) is a standard model used to predict the location of satellites. Orbitwatch uses the SGP4 model to propagate the satellite orbits from the TLE data, providing accurate and real-time satellite positions on the interactive map. This allows for a more realistic and accurate visualization of the satellite's trajectory and current location.
+
+---
+
 ## Dashboard Components Explained
 
--   **Threat Score:** A proprietary score calculated based on the severity and frequency of detected anomalies, as well as the satellite's operational importance.
+-   **Overall Threat Score:** An aggregated score that provides a high-level overview of the threat level of a Resident Space Object (RSO). This score is calculated as the average of the individual anomaly scores from the machine learning models.
+-   **Threat Score Breakdown:** A detailed breakdown of the threat score, showing the individual anomaly scores from each of the machine learning models:
+    -   **Autoencoder:** The anomaly score from the TensorFlow Autoencoder model.
+    -   **Isolation Forest:** The anomaly score from the Scikit-learn Isolation Forest model.
+    -   **SVM:** The anomaly score from the Scikit-learn One-Class SVM model.
 -   **Orbital Parameters:** Key data points that describe the satellite's orbit, including:
     -   **Inclination:** The angle of the orbit in relation to the Earth's equator.
     -   **RAAN (Right Ascension of the Ascending Node):** The angle from the vernal equinox to the point where the orbit crosses the equatorial plane from south to north.

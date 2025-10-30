@@ -15,6 +15,11 @@ interface RSO {
   name: string;
   type: "debris" | "payload" | "rocket body" | "unknown";
   threatScore: number;
+  threatScores: {
+    autoencoder: number;
+    isolationForest: number;
+    svm: number;
+  };
   country: string;
   launchDate: string;
   orbitalPeriod: number;
@@ -98,25 +103,30 @@ const RSOCharacterization = ({ rsos }: RSOCharacterizationProps) => {
         <TooltipProvider>
           <div className="flex flex-col h-full">
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="bg-slate-800/50 rounded-lg p-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="cursor-pointer">
-                      <div className={`text-3xl font-bold ${getThreatColor(selectedRso.threatScore)}`}>{selectedRso.threatScore}</div>
-                      <div className="text-xs text-slate-400 flex items-center">
-                        Threat Score <Info className="h-3 w-3 ml-1" />
+              <div className="bg-slate-800/50 rounded-lg p-3 col-span-2">
+                <h4 className="font-semibold text-slate-300 mb-2">Threat Score Breakdown</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span>Overall Threat Score</span>
+                    <span className={`font-bold ${getThreatColor(selectedRso.threatScore)}`}>{selectedRso.threatScore}</span>
+                  </div>
+                  {selectedRso.threatScores && Object.entries(selectedRso.threatScores).map(([model, score]) => (
+                    <div key={model} className="flex justify-between items-center">
+                      <div className="flex items-center">
+                        <span className="capitalize">{model.replace(/([A-Z])/g, ' $1').trim()}</span>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 ml-1.5 cursor-pointer" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Anomaly score from the {model.replace(/([A-Z])/g, ' $1').trim()} model.</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
+                      <span className={`font-bold ${getThreatColor(score)}`}>{score}</span>
                     </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Calculated using a hybrid of:</p>
-                    <ul className="list-disc list-inside">
-                      <li>TensorFlow Autoencoder</li>
-                      <li>Scikit-learn Isolation Forest</li>
-                      <li>Scikit-learn One-Class SVM</li>
-                    </ul>
-                  </TooltipContent>
-                </Tooltip>
+                  ))}
+                </div>
               </div>
               <div className="bg-slate-800/50 rounded-lg p-3">
                 <div className="text-lg font-bold text-white">{selectedRso.country}</div>
