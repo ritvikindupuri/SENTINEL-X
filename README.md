@@ -33,35 +33,65 @@ The Orbitwatch application operates as a real-time data processing pipeline. Her
 
 ### 4. **Machine Learning Analysis & Anomaly Detection**
 
--   **Feature Extraction:** The transformed positional and telemetry data is converted into a numerical feature vector.
--   **Hybrid Model Inference:** This feature vector is fed into a pipeline of three distinct machine learning models:
-    1.  **TensorFlow Autoencoder:** Detects subtle deviations from normal patterns learned during training.
-    2.  **Scikit-learn Isolation Forest:** Isolates outliers in the data.
-    3.  **Scikit-learn One-Class SVM:** Identifies novel, unseen data points that don't conform to the norm.
--   **Threat Scoring:** The raw output from each model is normalized into a 0-100 score. These are averaged to produce an "Overall Threat Score." If the score exceeds a certain threshold, an **anomaly** is flagged.
+This is the core of the application's intelligence. The process is broken down into feature engineering, model training, inference, and scoring.
+
+#### **Stage 1: Feature Engineering**
+
+The raw TLE data is not suitable for detecting *operational* anomalies. Therefore, we engineer a specific feature set that represents the satellite's health. This is handled in the `convert_satellite_to_telemetry` function.
+
+-   **Transformation:** The function takes the processed satellite data (including its SGP4-calculated position) and generates a simulated telemetry stream.
+-   **Feature Selection:** It then constructs a dictionary containing the precise features the models will be trained on:
+    -   `temperature`
+    -   `power`
+    -   `communication`
+    -   `orbit` (altitude)
+    -   `voltage`
+    -   `solarPanelEfficiency`
+    -   `attitudeControl`
+    -   `fuelLevel`
+
+#### **Stage 2: Model Training**
+
+-   **Normalization:** Before training, the feature vectors are normalized using the mean and standard deviation of the initial dataset. This ensures that all features are on a similar scale, which is crucial for the performance of the ML models.
+-   **Initial Training:** The `train_models_on_data` function is called once the first batch of live data is fetched. It fits all three models (Autoencoder, Isolation Forest, and One-Class SVM) on this initial "normal" dataset. This establishes a baseline for what constitutes normal satellite operation.
+
+#### **Stage 3: Hybrid Model Inference**
+
+For each new piece of telemetry data, the application runs inference on three different models. This hybrid approach ensures a more robust and reliable anomaly detection capability.
+
+**1. TensorFlow Autoencoder**
+-   **Purpose:** To detect subtle or complex deviations from the learned "normal" operational patterns.
+-   **Input:** A single, normalized feature vector (e.g., `[temp, power, comms, ...]`).
+-   **Process:** The autoencoder attempts to reconstruct the input vector after compressing it through a smaller bottleneck layer. If the input is "normal," the reconstruction will be very close to the original. If it's anomalous, the model will struggle, resulting in a higher error.
+-   **Raw Output:** A `reconstruction_error` (a float), which is the mean squared error between the input and the reconstructed output.
+
+**2. Scikit-learn Isolation Forest**
+-   **Purpose:** To detect statistical outliers that are numerically distinct from the majority of the data points.
+-   **Input:** The same normalized feature vector.
+-   **Process:** This model is an ensemble of trees that "isolate" data points by randomly partitioning the feature space. Anomalies are typically easier to isolate and thus have a shorter path from the root of the tree.
+-   **Raw Output:** A `decision_function` score (a float). Scores are typically negative for anomalies and positive for inliers.
+
+**3. Scikit-learn One-Class SVM**
+-   **Purpose:** To identify novel data points that do not conform to the distribution of the normal training data.
+-   **Input:** The same normalized feature vector.
+-   **Process:** The SVM learns a boundary (a hyperplane) that encompasses the "normal" data. Any new data point that falls outside this boundary is considered an anomaly.
+-   **Raw Output:** A `decision_function` score (a float). Like the Isolation Forest, scores are typically negative for anomalies and positive for inliers.
+
+#### **Stage 4: Threat Score Calculation**
+
+The raw outputs from the models are not easily interpretable. The `_normalize_score` function converts them into a standardized 0-100 threat score.
+
+-   **Autoencoder Score:** The `reconstruction_error` is scaled. A higher error results in a higher score (e.g., `error * 200`).
+-   **Isolation Forest & SVM Scores:** The `decision_function` scores are inverted and scaled. Since negative scores indicate anomalies, the formula (`50 - score * 50`) maps a score of -1 to a threat score of 100, and a score of 1 to a threat score of 0.
+
+-   **Sub-Scores:** These three normalized scores are sent to the frontend as the `threatScores` breakdown.
+-   **Overall Threat Score:** The final `threatScore` is calculated by taking the **mean average** of the three individual sub-scores. This provides a single, high-level indicator of the anomaly's severity.
 
 ### 5. **Data Streaming Architecture: Real-Time Visualization**
 
--   **WebSocket Connection:** The frontend and backend maintain a persistent, bidirectional communication channel using **Socket.IO**. When the frontend application loads, it establishes a WebSocket connection to the Python server.
--   **Event-Based Broadcasting:** When the ML pipeline flags an anomaly, the backend service does not wait for the frontend to request it. Instead, it proactively **broadcasts** a `new_anomaly` event to all connected clients. This event contains a full JSON payload with all the transformed data for the anomalous satellite.
--   **Frontend Event Listeners:** The Next.js frontend has event listeners that are constantly waiting for the `new_anomaly` event. When this event is received, it triggers a state update in the React application.
--   **Dynamic Component Rendering:** The state update causes all relevant UI components—the map, the RSO panel, the charts, and the header stats—to re-render with the new data, ensuring the user sees the latest information instantly.
-
-This entire cycle—from fetching to transformation to analysis to visualization—repeats periodically, creating a seamless, real-time intelligence dashboard.
-
-## Machine Learning Pipeline
-
-The anomaly detection engine is built on a hybrid model approach to maximize detection accuracy.
-
--   **TensorFlow Autoencoder:**
-    -   **Input:** A normalized vector of telemetry data (e.g., temperature, power, altitude, velocity).
-    -   **Logic:** The model is trained to reconstruct "normal" telemetry. A high reconstruction error indicates that the input data is unusual and potentially anomalous.
--   **Isolation Forest:**
-    -   **Input:** The same normalized telemetry vector.
-    -   **Logic:** This model builds a forest of random trees. Anomalies are identified as data points that require fewer splits to be isolated, as they are "further" from the normal data clusters.
--   **One-Class SVM (Support Vector Machine):**
-    -   **Input:** The same normalized telemetry vector.
-    -   **Logic:** The SVM is trained on normal data to define a boundary around it. Any data point that falls outside this boundary is considered an anomaly.
+-   **WebSocket Connection:** The frontend and backend maintain a persistent, bidirectional communication channel using **Socket.IO**.
+-   **Event-Based Broadcasting:** When the ML pipeline flags an anomaly, the backend **broadcasts** a `new_anomaly` event to all connected clients.
+-   **Frontend Event Listeners:** The Next.js frontend listens for the `new_anomaly` event and updates the application's state, causing all relevant UI components to re-render instantly.
 
 ## Technologies Used
 
@@ -101,14 +131,12 @@ The anomaly detection engine is built on a hybrid model approach to maximize det
 ### Running the Application
 
 1.  **Start the Python ML Service:**
-    Open a terminal and run:
     ```bash
     python3 services/ml_service/main.py
     ```
     The backend server will start on port 5000.
 
 2.  **Start the Next.js Frontend:**
-    Open a second terminal and run:
     ```bash
     npm run dev
     ```
