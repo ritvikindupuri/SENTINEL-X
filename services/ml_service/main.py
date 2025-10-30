@@ -399,11 +399,14 @@ def handle_disconnect():
 @socketio.on('get_dashboard_data')
 def handle_get_dashboard_data(json):
     telemetry = json.get('telemetry', {})
+    with lock:
+        sats = monitored_satellites
     socketio.emit('dashboard_data', {
         "subframes": _generate_subframes(telemetry),
         "logs": _generate_logs(),
         "rsos": _generate_rsos(telemetry),
         "spartaMitreAlignment": _generate_sparta_mitre_alignment(),
+        "monitoredSatellites": sats,
     })
 
 @socketio.on('save_credentials')
@@ -523,6 +526,9 @@ def handle_predict_event(json):
             'isFlagged': False,
         }
         emit('new_anomaly', frontend_anomaly, broadcast=True)
+
+        # Also emit the full dashboard data to ensure the map and other components are updated
+        handle_get_dashboard_data({'telemetry': telemetry})
 
 if __name__ == '__main__':
     logging.info("Starting server...")

@@ -68,7 +68,7 @@ const OrbitalMap = ({ satellites, anomalies, onFlagAnomaly, onSatelliteClick }: 
             >
               {anomaly && (
                 <Popup>
-                  <div className="text-black">
+                  <div>
                     <b>{anomaly.satelliteName}</b>
                     <br />
                     Anomaly: {anomaly.anomalyResult.anomaly_type}

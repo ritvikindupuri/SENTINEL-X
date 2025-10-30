@@ -32,12 +32,10 @@ const initialData: DashboardData = {
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
-  const [isClient, setIsClient] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedSatellite, setSelectedSatellite] = useState(null);
 
   useEffect(() => {
-    setIsClient(true);
     realTimeInference.startRealTimeInference();
 
     const handleNewData = (data: DashboardData) => {
@@ -50,10 +48,6 @@ export default function Dashboard() {
       realTimeInference.stopRealTimeInference();
     };
   }, []);
-
-  if (!isClient) {
-    return null; // Render nothing on the server
-  }
 
   const handleSatelliteClick = (satellite) => {
     setSelectedSatellite(satellite);

@@ -30,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <head>
+        <title>Orbitwatch</title>
         <style>{`
 html {
   font-family: ${inter.style.fontFamily};
