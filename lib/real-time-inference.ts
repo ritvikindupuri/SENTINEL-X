@@ -169,7 +169,7 @@ class RealTimeInferenceService {
     this.socket.emit("manual_alert", newAnomaly);
   }
 
-  saveSpacetrackCredentials(credentials: { username: string; password:string }) {
+  saveSpacetrackCredentials(credentials: { username: string; password: string }) {
     this.socket.emit("save_credentials", credentials);
   }
 

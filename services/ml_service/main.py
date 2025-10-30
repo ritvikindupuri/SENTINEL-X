@@ -330,6 +330,26 @@ def handle_save_credentials(json):
         space_track_credentials["username"] = json.get("username")
         space_track_credentials["password"] = json.get("password")
 
+    def fetch_data_in_background():
+        """Fetches data and emits updates."""
+        satellites = fetch_satellite_positions()
+        if satellites:
+            with lock:
+                global monitored_satellites
+                monitored_satellites = satellites
+                telemetry_data = [convert_satellite_to_telemetry(s) for s in satellites]
+                telemetry_data_store.extend(telemetry_data)
+
+            # Assuming models are already trained, just run inference and emit updates
+            for satellite in satellites:
+                telemetry = convert_satellite_to_telemetry(satellite)
+                handle_predict_event({'telemetry': telemetry, 'satellite': satellite})
+
+            if telemetry_data:
+                handle_get_dashboard_data({'telemetry': telemetry_data[0]})
+
+    threading.Thread(target=fetch_data_in_background).start()
+
 @socketio.on('manual_alert')
 def handle_manual_alert(json):
     print('Received manual alert: ', json)
