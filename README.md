@@ -1,184 +1,122 @@
-# Orbitwatch: Real-Time Satellite Anomaly Detection
+# Orbitwatch - Advanced Satellite Anomaly Detection Dashboard
 
-**Orbitwatch** is a comprehensive, real-time satellite anomaly detection platform. It provides a high-fidelity dashboard for monitoring satellite health, visualizing orbital data, and detecting potential anomalies using a powerful Python-based machine learning backend.
+Orbitwatch is a real-time, full-stack satellite tracking and anomaly detection dashboard. It provides a comprehensive visualization of satellite orbits and leverages a sophisticated machine learning pipeline to identify and flag potential threats or malfunctions in real-time.
 
-![Orbitwatch Screenshot](https://i.imgur.com/8i2E26E.png)
+## Key Features
 
----
+-   **Real-Time Satellite Tracking:** Visualizes the precise orbits of multiple Resident Space Objects (RSOs) on a dynamic 2D map.
+-   **In-App Credential Management:** Securely enter SpaceTrack credentials directly within the application to initiate live data fetching without needing to manage `.env` files.
+-   **Advanced Anomaly Detection:** Utilizes a hybrid machine learning pipeline with three distinct models to analyze satellite telemetry data and detect deviations from normal operational parameters.
+-   **Dynamic UI:** The entire dashboard is event-driven, with all components updating in real-time as new data is streamed from the backend.
+-   **Detailed RSO Characterization:** Offers an in-depth look at each satellite, including its threat score, telemetry data, and key orbital parameters.
+-   **Threat Score Breakdown:** Provides a transparent view into the anomaly detection process by showing the individual scores from each machine learning model.
 
-## Table of Contents
+## End-to-End Data Flow
 
-- [Features](#features)
-- [Architecture](#architecture)
-- [The Machine Learning Pipeline](#the-machine-learning-pipeline)
-- [SGP4 Integration](#sgp4-integration)
-- [Dashboard Components Explained](#dashboard-components-explained)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Running the Application](#running-the-application)
-- [Technology Stack](#technology-stack)
+The Orbitwatch application operates as a real-time data processing pipeline. Here is a step-by-step breakdown of the entire workflow, from data acquisition to visualization.
 
----
+### 1. **Data Extraction (The "E" in ETL)**
 
-## Features
+-   **Authentication & API Request:** The process begins when the user enters their SpaceTrack.org credentials into the settings dialog in the UI. These are sent to the Python backend via a secure WebSocket connection and stored in-memory for the session.
+-   **Fetching TLE Data:** The backend service uses these credentials to make a direct, authenticated HTTP request to the SpaceTrack API. It fetches the latest **Two-Line Element (TLE)** data for a predefined list of satellites.
 
-Orbitwatch is designed to provide a complete, end-to-end solution for satellite monitoring and anomaly detection.
+### 2. **Data Structure (Structured, Not Unstructured)**
 
--   **Real-Time Dashboard:** A dynamic and intuitive user interface that updates in real-time without the need for page reloads. All components, from key performance indicators to charts, are streamed live from the backend.
--   **Interactive Orbital Map:** A lightweight and performant orbital map, built with Leaflet.js, that visualizes satellite positions and highlights anomalies as they are detected.
--   **In-App Spacetrack Configuration:** Securely configure your SpaceTrack.org credentials directly within the application. Once saved, Orbitwatch will immediately begin ingesting and displaying real-time satellite data.
--   **Hybrid Anomaly Detection:** A sophisticated backend powered by a combination of TensorFlow and Scikit-learn models to provide robust and sensitive anomaly detection.
--   **Rich Data Visualization:** The dashboard includes a variety of components to provide a deep understanding of the satellite network's health, including:
-    -   **RSO Characterization:** Panels that provide detailed information on Resident Space Objects.
-    -   **Logging:** A real-time log of all detected anomalies and system events.
-    -   **Manual Alerts:** The ability for users to manually flag anomalies and create their own alerts.
--   **SPARTA/MITRE TTP Alignment:** A unique feature that maps detected anomalies to the [SPARTA](https://sirt.arizona.edu/projects/sparta) framework, providing valuable context for threat intelligence.
+-   **JSON API Response:** The data from SpaceTrack is received in a **JSON format**, which is semi-structured. It contains a predictable set of key-value pairs for each satellite.
+-   **Rigid TLE Format:** The core of this data, the TLE strings, are highly **structured**. Every character in the two lines of a TLE has a precise, column-dependent meaning (e.g., inclination, eccentricity, mean motion). The application relies on this rigid format for accurate parsing.
 
----
+### 3. **Data Transformation (The "T" in ETL)**
 
-## Architecture
+-   **In-Memory Processing:** As soon as the raw TLE data is received, it is immediately processed in memory by the Python service. It is **not** loaded into a database first.
+-   **SGP4 Orbit Propagation:** Each satellite's TLE is fed into the **SGP4 (Simplified General Perturbations 4)** library. This is a high-precision orbital mechanics model that calculates the satellite's exact real-time position (latitude, longitude, altitude) and velocity. This step transforms the raw orbital elements into actionable location data.
+-   **Simulated Telemetry Generation:** Based on the calculated position (e.g., relation to the sun), the service generates additional simulated telemetry data, such as power levels and temperature, to create a realistic data stream for analysis.
 
-Orbitwatch is built on a modern, three-tier architecture that is designed for real-time data flow and scalability.
+### 4. **Machine Learning Analysis & Anomaly Detection**
 
-```mermaid
-graph TD
-    A[Space-Track.org API] -->|1. Fetches TLE Data| B(Python ML Backend);
-    B -->|3. Streams Processed Data via WebSocket| C{Next.js Frontend};
-    C -->|2. Renders Real-Time Dashboard| D(User);
-    C -->|4. Sends User Actions & Credentials| B;
-```
+-   **Feature Extraction:** The transformed positional and telemetry data is converted into a numerical feature vector.
+-   **Hybrid Model Inference:** This feature vector is fed into a pipeline of three distinct machine learning models:
+    1.  **TensorFlow Autoencoder:** Detects subtle deviations from normal patterns learned during training.
+    2.  **Scikit-learn Isolation Forest:** Isolates outliers in the data.
+    3.  **Scikit-learn One-Class SVM:** Identifies novel, unseen data points that don't conform to the norm.
+-   **Threat Scoring:** The raw output from each model is normalized into a 0-100 score. These are averaged to produce an "Overall Threat Score." If the score exceeds a certain threshold, an **anomaly** is flagged.
 
-1.  **Data Source (Space-Track.org API):** The application uses the official Space-Track.org API as its source of live satellite Two-Line Element (TLE) data.
-2.  **Python ML Backend (The Brain):** The core of the application is a Python service built with Flask-SocketIO. It is responsible for:
-    -   **Data Ingestion:** Periodically fetching and parsing live TLE data from Space-Track.
-    -   **ML Pipeline:** Managing the training and real-time inference of a hybrid set of machine learning models.
-    -   **Real-Time Analysis:** Detecting anomalies and generating rich data payloads, including logs and SPARTA/MITRE TTP alignments.
-    -   **Data Streaming:** Broadcasting the complete, processed dashboard data to all connected clients via WebSockets.
-3.  **Next.js Frontend (The User Experience):** The user-facing application is a modern web application built with Next.js and React. It establishes a persistent WebSocket connection with the backend to receive a continuous stream of data, which it then uses to render the interactive dashboard and orbital map.
+### 5. **Data Streaming & Visualization (The "Load" equivalent)**
 
-This decoupled architecture ensures a clean separation of concerns, making the system scalable and maintainable.
+-   **WebSocket Emission:** When an anomaly is detected, the backend service "loads" the data by emitting a `new_anomaly` event via **Socket.IO**. This event broadcasts the complete, transformed data packet (including location, telemetry, and threat scores) to all connected frontend clients.
+-   **Real-Time UI Updates:** The Next.js frontend listens for this event. When a new anomaly packet is received:
+    -   The **Leaflet.js map** updates with the satellite's new position.
+    -   The **RSO Characterization** panel populates with the latest telemetry and threat score breakdown.
+    -   The header statistics (Alerts, Score, etc.) are updated.
 
----
+This entire cycle—from fetching to transformation to analysis to visualization—repeats periodically, creating a seamless, real-time intelligence dashboard.
 
-## The Machine Learning Pipeline
+## Machine Learning Pipeline
 
-The heart of the Orbitwatch backend is its sophisticated machine learning pipeline, which is designed for robust and sensitive anomaly detection.
+The anomaly detection engine is built on a hybrid model approach to maximize detection accuracy.
 
--   **Inputs:** The models are trained on a feature set extracted from the TLE data, which includes:
-    -   `temperature`: The satellite's internal temperature.
-    -   `power`: The satellite's power level.
-    -   `communication`: The strength of the satellite's communication signal.
-    -   `orbit`: The satellite's altitude.
-    -   `voltage`: The satellite's voltage.
-    -   `solarPanelEfficiency`: The efficiency of the satellite's solar panels.
-    -   `attitudeControl`: A measure of the satellite's orientation control.
-    -   `fuelLevel`: The satellite's remaining fuel level.
--   **Outputs:** The models produce the following outputs:
-    -   `reconstruction_error`: The reconstruction error from the TensorFlow Autoencoder.
-    -   `if_score`: The anomaly score from the Isolation Forest model.
-    -   `svm_score`: The anomaly score from the One-Class SVM model.
--   **Hybrid Model Approach:** Orbitwatch uses a combination of models to ensure the highest level of accuracy:
-    -   **TensorFlow Autoencoder:** This neural network learns a baseline of normal operational patterns and is excellent at detecting subtle deviations from that baseline. It works by compressing the input data and then reconstructing it; a high reconstruction error indicates an anomaly.
-    -   **Scikit-learn Isolation Forest:** An ensemble model that excels at identifying statistical outliers in the data. It works by randomly partitioning the data, and anomalies are the points that are easiest to "isolate" from the rest of the data.
-    -   **Scikit-learn One-Class SVM:** A classic and powerful algorithm for novelty and outlier detection. It is trained on "normal" data and learns a boundary around it. Any new data point that falls outside this boundary is considered an anomaly.
--   **Training:** The models are trained on an initial batch of live data that is fetched when the backend server starts and the user provides their SpaceTrack credentials. The system is designed for periodic retraining, allowing it to adapt to new patterns over time.
+-   **TensorFlow Autoencoder:**
+    -   **Input:** A normalized vector of telemetry data (e.g., temperature, power, altitude, velocity).
+    -   **Logic:** The model is trained to reconstruct "normal" telemetry. A high reconstruction error indicates that the input data is unusual and potentially anomalous.
+-   **Isolation Forest:**
+    -   **Input:** The same normalized telemetry vector.
+    -   **Logic:** This model builds a forest of random trees. Anomalies are identified as data points that require fewer splits to be isolated, as they are "further" from the normal data clusters.
+-   **One-Class SVM (Support Vector Machine):**
+    -   **Input:** The same normalized telemetry vector.
+    -   **Logic:** The SVM is trained on normal data to define a boundary around it. Any data point that falls outside this boundary is considered an anomaly.
 
-By combining the results from these three models, Orbitwatch is able to detect a wide range of potential anomalies with a high degree of confidence.
+## Technologies Used
 
----
-
-## SGP4 Integration
-
-The Simplified General Perturbations 4 (SGP4) is a standard model used to predict the location of satellites. Orbitwatch uses the SGP4 model to propagate the satellite orbits from the TLE data, providing accurate and real-time satellite positions on the interactive map. This allows for a more realistic and accurate visualization of the satellite's trajectory and current location.
-
----
-
-## Dashboard Components Explained
-
--   **Overall Threat Score:** An aggregated score that provides a high-level overview of the threat level of a Resident Space Object (RSO). This score is calculated as the average of the individual anomaly scores from the machine learning models.
--   **Threat Score Breakdown:** A detailed breakdown of the threat score, showing the individual anomaly scores from each of the machine learning models:
-    -   **Autoencoder:** The anomaly score from the TensorFlow Autoencoder model.
-    -   **Isolation Forest:** The anomaly score from the Scikit-learn Isolation Forest model.
-    -   **SVM:** The anomaly score from the Scikit-learn One-Class SVM model.
--   **Orbital Parameters:** Key data points that describe the satellite's orbit, including:
-    -   **Inclination:** The angle of the orbit in relation to the Earth's equator.
-    -   **RAAN (Right Ascension of the Ascending Node):** The angle from the vernal equinox to the point where the orbit crosses the equatorial plane from south to north.
-    -   **Argument of Perigee:** The angle from the ascending node to the perigee (the point in the orbit closest to Earth).
--   **TTPs (Tactics, Techniques, and Procedures):** The dashboard maps detected anomalies to the SPARTA/MITRE framework to provide context for threat intelligence. This helps to understand the potential intent behind an anomaly.
--   **RSOs (Resident Space Objects):** The dashboard provides detailed characterization of RSOs, including their country of origin, launch date, and orbital period.
--   **Alerts:** Real-time alerts are generated whenever an anomaly is detected by the machine learning pipeline. Users can also manually create alerts.
-
----
+-   **Frontend:** Next.js, React, TypeScript, Tailwind CSS, ShadCN/UI
+-   **Real-Time Communication:** Socket.IO
+-   **Mapping:** Leaflet.js, React-Leaflet
+-   **Data Visualization:** Recharts
+-   **Backend:** Python, Flask
+-   **Machine Learning:** TensorFlow, Scikit-learn
+-   **Orbital Mechanics:** SGP4
 
 ## Getting Started
 
-Follow these instructions to set up and run the Orbitwatch application on your local machine.
-
 ### Prerequisites
 
--   [Node.js](https://nodejs.org/) (v18 or later)
--   [Python](https://www.python.org/) (v3.9 or later)
--   A [Space-Track.org](https://www.space-track.org/) account with a verified username and password.
+-   Node.js and npm
+-   Python 3.10+ and pip
 
-### Installation
+### Installation & Setup
 
-1.  **Clone the Repository:**
+1.  **Clone the repository:**
     ```bash
     git clone https://github.com/your-username/orbitwatch.git
     cd orbitwatch
     ```
 
-2.  **Install Frontend Dependencies:**
+2.  **Install frontend dependencies:**
     ```bash
     npm install
     ```
 
-3.  **Install Backend Dependencies:**
+3.  **Install backend dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
 
 ### Running the Application
 
-You will need to run the backend and frontend servers in separate terminals.
-
-1.  **Start the Python ML Backend:**
+1.  **Start the Python ML Service:**
+    Open a terminal and run:
     ```bash
     python3 services/ml_service/main.py
     ```
-    The backend server will start on `http://localhost:5000`.
+    The backend server will start on port 5000.
 
 2.  **Start the Next.js Frontend:**
+    Open a second terminal and run:
     ```bash
     npm run dev
     ```
-    The frontend development server will start on `http://localhost:3000`.
+    The frontend development server will start on port 3000.
 
-3.  **Configure Space-Track Credentials:**
-    -   Open your browser and navigate to `http://localhost:3000`.
-    -   Click on the **Settings** icon in the header.
-    -   Enter your Space-Track.org username and password, and click **Save**.
-    -   The application will now start fetching and displaying real-time satellite data.
+3.  **Access the Dashboard:**
+    Open your browser and navigate to `http://localhost:3000`.
 
----
-
-## Technology Stack
-
-### Backend
-
--   **Python**
--   **Flask-SocketIO:** For real-time, bi-directional communication with the frontend.
--   **TensorFlow/Keras:** For the autoencoder model.
--   **Scikit-learn:** For the Isolation Forest and One-Class SVM models.
--   **Requests:** For fetching data from the Space-Track.org API.
-
-### Frontend
-
--   **Next.js:** A React framework for building modern web applications.
--   **React:** A JavaScript library for building user interfaces.
--   **Leaflet.js:** An open-source JavaScript library for mobile-friendly interactive maps.
--   **Socket.IO Client:** For connecting to the backend WebSocket server.
--   **Recharts:** A composable charting library built on React components.
--   **Tailwind CSS:** A utility-first CSS framework for rapid UI development.
--   **ShadCN/UI:** A collection of accessible and reusable UI components.
+4.  **Provide Credentials:**
+    Click the settings icon in the top-right corner and enter your SpaceTrack.org username and password to begin streaming live data.
