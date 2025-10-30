@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, BarChart2, FileText, Satellite, Settings, Shield } from "lucide-react";
+import { AlertTriangle, BarChart2, FileText, Satellite, Settings, Shield, Info } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface RSO {
   id: string;
@@ -94,14 +95,31 @@ const RSOCharacterization = ({ rsos }: RSOCharacterizationProps) => {
         </Select>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto">
+        <TooltipProvider>
           <div className="flex flex-col h-full">
             <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-slate-800/50 rounded-lg p-3">
-                    <div className={`text-3xl font-bold ${getThreatColor(selectedRso.threatScore)}`}>{selectedRso.threatScore}</div>
-                    <div className="text-xs text-slate-400">Threat Score</div>
-                </div>
-                 <div className="bg-slate-800/50 rounded-lg p-3">
-                    <div className="text-lg font-bold text-white">{selectedRso.country}</div>
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="cursor-pointer">
+                      <div className={`text-3xl font-bold ${getThreatColor(selectedRso.threatScore)}`}>{selectedRso.threatScore}</div>
+                      <div className="text-xs text-slate-400 flex items-center">
+                        Threat Score <Info className="h-3 w-3 ml-1" />
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Calculated using a hybrid of:</p>
+                    <ul className="list-disc list-inside">
+                      <li>TensorFlow Autoencoder</li>
+                      <li>Scikit-learn Isolation Forest</li>
+                      <li>Scikit-learn One-Class SVM</li>
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-3">
+                <div className="text-lg font-bold text-white">{selectedRso.country}</div>
                     <div className="text-xs text-slate-400">Country of Origin</div>
                 </div>
                  <div className="bg-slate-800/50 rounded-lg p-3 col-span-2">
@@ -194,6 +212,7 @@ const RSOCharacterization = ({ rsos }: RSOCharacterizationProps) => {
               </TabsContent>
             </Tabs>
           </div>
+        </TooltipProvider>
       </CardContent>
     </Card>
   );
