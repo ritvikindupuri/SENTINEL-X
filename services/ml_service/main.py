@@ -160,6 +160,34 @@ def fetch_satellite_positions():
             logging.error("Space-Track credentials not configured.")
             return []
 
+        # --- Mock Data for Testing ---
+        if space_track_username == "dummy@user.com":
+            logging.info("Using mock satellite data for testing.")
+            mock_tle_data = [
+                {
+                    "TLE_LINE1": "1 25544U 98067A   25303.52854167  .00007823  00000+0  14761-3 0  9999",
+                    "TLE_LINE2": "2 25544  51.6416 252.1266 0006753  45.5433 314.5912 15.49501114472911",
+                    "NORAD_CAT_ID": "25544",
+                    "OBJECT_NAME": "ISS (ZARYA)"
+                },
+                {
+                    "TLE_LINE1": "1 28654U 05016A   25303.65931757  .00005291  00000+0  99999-4 0  9997",
+                    "TLE_LINE2": "2 28654  98.7118 202.4208 0007851 108.9023 251.2721 14.33178553 23414",
+                    "NORAD_CAT_ID": "28654",
+                    "OBJECT_NAME": "STARLINK-1"
+                },
+                {
+                    "TLE_LINE1": "1 39084U 13014B   25303.14249153  .00000216  00000+0  16942-3 0  9991",
+                    "TLE_LINE2": "2 39084  97.4468 221.7853 0013997  89.4312 270.7303 15.06423985590989",
+                    "NORAD_CAT_ID": "39084",
+                    "OBJECT_NAME": "COSMOS 2484"
+                },
+            ]
+            satellites = [parse_space_track_tle(tle) for tle in mock_tle_data if parse_space_track_tle(tle) is not None]
+            logging.info(f"Successfully generated {len(satellites)} mock satellite positions.")
+            return satellites
+        # --- End Mock Data ---
+
         logging.info("Fetching satellite TLE data from Space-Track.org...")
 
         session = requests.Session()

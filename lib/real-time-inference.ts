@@ -180,8 +180,8 @@ class RealTimeInferenceService {
 
   private emitDashboardData(data: any = {}) {
     const dashboardData = {
-      ...this.buildDashboardData(),
       ...data,
+      ...this.buildDashboardData(),
     };
     this.onNewDataCallback(dashboardData);
   }

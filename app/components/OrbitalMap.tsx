@@ -65,6 +65,7 @@ const OrbitalMap = ({ satellites, anomalies, onFlagAnomaly, onSatelliteClick }: 
               eventHandlers={{
                 click: () => onSatelliteClick(sat),
               }}
+              data-testid={`marker-${sat.noradId}`} // Add this line
             >
               {anomaly && (
                 <Popup>
