@@ -27,9 +27,12 @@ const initialData: DashboardData = {
   rsos: [],
 };
 
+import Settings from "./components/Settings";
+
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
   const [isClient, setIsClient] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
@@ -58,9 +61,14 @@ export default function Dashboard() {
     realTimeInference.createManualAlert(alert);
   };
 
+  const handleSaveCredentials = (credentials: { username: string; password: string }) => {
+    realTimeInference.saveSpacetrackCredentials(credentials);
+  };
+
   return (
     <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
-      <Header {...dashboardData.header} />
+      <Header {...dashboardData.header} onSettingsClick={() => setIsSettingsOpen(true)} />
+      <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={handleSaveCredentials} />
       <main className="flex-1 p-6 grid grid-cols-12 grid-rows-12 gap-6">
         <div className="col-span-8 row-span-8">
           <OrbitalMap

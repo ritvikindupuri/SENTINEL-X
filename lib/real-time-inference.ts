@@ -126,6 +126,7 @@ class RealTimeInferenceService {
       if (!this.anomalies.some(a => a.id === newAnomaly.id)) {
         this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
         this.metrics.anomaliesDetected = this.anomalies.length;
+        this.emitDashboardData();
       }
     });
   }
@@ -166,6 +167,10 @@ class RealTimeInferenceService {
       isFlagged: true, // Manual alerts are always flagged
     };
     this.socket.emit("manual_alert", newAnomaly);
+  }
+
+  saveSpacetrackCredentials(credentials: { username: string; password:string }) {
+    this.socket.emit("save_credentials", credentials);
   }
 
   private emitDashboardData(data: any = {}) {

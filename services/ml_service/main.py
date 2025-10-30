@@ -27,6 +27,9 @@ logging.info("SocketIO initialized.")
 lock = threading.Lock()
 logging.info("Thread lock initialized.")
 
+# In-memory storage for credentials
+space_track_credentials = {}
+
 def parse_space_track_tle(tle):
     line1 = tle['TLE_LINE1']
     line2 = tle['TLE_LINE2']
@@ -78,11 +81,12 @@ def parse_space_track_tle(tle):
 
 def fetch_satellite_positions():
     try:
-        space_track_username = os.getenv("SPACE_TRACK_USERNAME")
-        space_track_password = os.getenv("SPACE_TRACK_PASSWORD")
+        with lock:
+            space_track_username = space_track_credentials.get("username") or os.getenv("SPACE_TRACK_USERNAME")
+            space_track_password = space_track_credentials.get("password") or os.getenv("SPACE_TRACK_PASSWORD")
 
         if not space_track_username or not space_track_password:
-            logging.error("Space-Track credentials not configured in environment variables.")
+            logging.error("Space-Track credentials not configured.")
             return []
 
         logging.info("Fetching satellite TLE data from Space-Track.org...")
@@ -318,6 +322,13 @@ def handle_get_dashboard_data(json):
         "rsos": _generate_rsos(telemetry),
         "spartaMitreAlignment": _generate_sparta_mitre_alignment(),
     })
+
+@socketio.on('save_credentials')
+def handle_save_credentials(json):
+    print('Received credentials: ', json)
+    with lock:
+        space_track_credentials["username"] = json.get("username")
+        space_track_credentials["password"] = json.get("password")
 
 @socketio.on('manual_alert')
 def handle_manual_alert(json):

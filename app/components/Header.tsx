@@ -1,14 +1,15 @@
 // app/components/Header.tsx
-import { Orbit } from "lucide-react";
+import { Orbit, SettingsIcon } from "lucide-react";
 
 interface HeaderProps {
   alerts: number;
   rsos: number;
   ttps: number;
   score: number;
+  onSettingsClick: () => void;
 }
 
-const Header = ({ alerts, rsos, ttps, score }: HeaderProps) => {
+const Header = ({ alerts, rsos, ttps, score, onSettingsClick }: HeaderProps) => {
   return (
     <header className="bg-[#252836] p-4 flex justify-between items-center border-b border-gray-700">
       <div className="flex items-center space-x-2">
@@ -32,6 +33,9 @@ const Header = ({ alerts, rsos, ttps, score }: HeaderProps) => {
           <p className="text-sm text-gray-400">Score</p>
           <p className="text-2xl font-bold text-red-500">{score}</p>
         </div>
+        <button onClick={onSettingsClick} className="p-2 rounded-full hover:bg-gray-700" aria-label="Settings">
+          <SettingsIcon className="w-6 h-6 text-gray-400" />
+        </button>
       </div>
     </header>
   );
