@@ -42,6 +42,9 @@ export interface RSO {
   type: string;
   threatLevel: "low" | "medium" | "high";
   orbit: string;
+  autoencoderScore: number;
+  isolationForestScore: number;
+  svmScore: number;
 }
 
 export interface DashboardData {
@@ -63,7 +66,7 @@ export interface DashboardData {
 }
 
 
-class RealTimeInferenceService {
+export class RealTimeInferenceService {
   private anomalies: RealTimeAnomaly[] = []
   private isRunning = false
   private inferenceInterval: NodeJS.Timeout | null = null
@@ -222,7 +225,38 @@ class RealTimeInferenceService {
       recentEvents: this.anomalies,
       subframes: [],
       logs: [],
-      rsos: [],
+      rsos: [
+        {
+          id: "1",
+          name: "Starlink-1",
+          type: "Communications",
+          threatLevel: "low",
+          orbit: "LEO",
+          autoencoderScore: 10,
+          isolationForestScore: 15,
+          svmScore: 5,
+        },
+        {
+          id: "2",
+          name: "GPS IIF-12",
+          type: "Navigation",
+          threatLevel: "medium",
+          orbit: "MEO",
+          autoencoderScore: 50,
+          isolationForestScore: 45,
+          svmScore: 55,
+        },
+        {
+          id: "3",
+          name: "GOES-16",
+          type: "Weather",
+          threatLevel: "high",
+          orbit: "GEO",
+          autoencoderScore: 90,
+          isolationForestScore: 85,
+          svmScore: 95,
+        },
+      ],
     };
   }
 
@@ -259,4 +293,3 @@ class RealTimeInferenceService {
   }
 }
 
-export const realTimeInference = new RealTimeInferenceService()

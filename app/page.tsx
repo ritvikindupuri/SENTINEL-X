@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
-import { realTimeInference, type DashboardData } from "@/lib/real-time-inference"
+import { RealTimeInferenceService, type DashboardData } from "@/lib/real-time-inference"
 import Header from "./components/Header"
 import Log from "./components/Log";
 import RSOCharacterization from "./components/RSOCharacterization";
@@ -29,23 +29,26 @@ const initialData: DashboardData = {
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
   const [isClient, setIsClient] = useState(false);
+  const [realTimeInference, setRealTimeInference] = useState<RealTimeInferenceService | null>(null);
 
   useEffect(() => {
     setIsClient(true);
-    realTimeInference.startRealTimeInference();
+    const inferenceService = new RealTimeInferenceService();
+    setRealTimeInference(inferenceService);
+    inferenceService.startRealTimeInference();
 
     const handleNewData = (data: DashboardData) => {
       setDashboardData(data);
     };
 
-    realTimeInference.onNewData(handleNewData);
+    inferenceService.onNewData(handleNewData);
 
     return () => {
-      realTimeInference.stopRealTimeInference();
+      inferenceService.stopRealTimeInference();
     };
   }, []);
 
-  if (!isClient) {
+  if (!isClient || !realTimeInference) {
     return null; // Render nothing on the server
   }
 
