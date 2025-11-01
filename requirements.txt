@@ -1,0 +1,7 @@
+Flask
+Flask-SocketIO
+tensorflow
+scikit-learn
+numpy
+requests
+sgp4

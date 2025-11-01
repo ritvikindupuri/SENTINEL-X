@@ -1,77 +1,125 @@
-// app/components/OrbitalMap.tsx
-"use client";
-import "leaflet/dist/leaflet.css";
-import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
-import "leaflet-defaulticon-compatibility";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import type { RealTimeAnomaly } from "@/lib/real-time-inference";
-import { Icon } from "leaflet";
+
+"use client"
+
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet"
+import "leaflet/dist/leaflet.css"
+import L from "leaflet"
+import { RealTimeAnomaly, RSO } from "@/lib/real-time-inference"
+import { AlertTriangle, Flag, CheckCircle } from "lucide-react"
+
+// -- Leaflet Icon Configuration --
+const satelliteIcon = new L.Icon({
+  iconUrl: "/satellite-icon.svg",
+  iconSize: [25, 25],
+  iconAnchor: [12, 12],
+  popupAnchor: [0, -12],
+})
+
+const anomalyIcon = new L.Icon({
+  iconUrl: "/anomaly-icon.svg",
+  iconSize: [35, 35],
+  iconAnchor: [17, 17],
+  popupAnchor: [0, -17],
+})
+
 
 interface OrbitalMapProps {
-  anomalies: RealTimeAnomaly[];
-  onFlagAnomaly: (anomalyId: string) => void;
+  anomalies: RealTimeAnomaly[]
+  onFlagAnomaly: (anomalyId: string) => void
+  onSelectRso: (rso: RSO) => void
+  rsos: RSO[]
 }
 
-const OrbitalMap = ({ anomalies, onFlagAnomaly }: OrbitalMapProps) => {
-  const getIcon = (severity: "low" | "medium" | "high", isFlagged?: boolean) => {
-    const color = {
-      low: "#28a745", // Green
-      medium: "#ffc107", // Yellow
-      high: "#dc3545", // Red
-    }[severity];
+const MapController = ({ anomalies, rsos }: { anomalies: RealTimeAnomaly[], rsos: RSO[] }) => {
+  const map = useMap()
 
-    const strokeColor = isFlagged ? "#00f6ff" : "white"; // Cyan for flagged, white otherwise
-    const strokeWidth = isFlagged ? "4" : "2";
+  // Pan to the first RSO or anomaly when data loads
+  useEffect(() => {
+    const target = rsos.find(r => r.latitude && r.longitude) || anomalies.find(a => a.location)
+    if (target) {
+      const lat = 'latitude' in target ? target.latitude : target.location.latitude;
+      const lng = 'longitude' in target ? target.longitude : target.location.longitude;
+      map.flyTo([lat, lng], map.getZoom(), {
+        animate: true,
+        duration: 1.5
+      })
+    }
+  }, [anomalies, rsos, map])
 
-    return new Icon({
-      iconUrl: `data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3e%3ccircle cx='12' cy='12' r='10' fill='${color}' stroke='${strokeColor}' stroke-width='${strokeWidth}'/%3e%3c/svg%3e`,
-      iconSize: [24, 24],
-      iconAnchor: [12, 24],
-      popupAnchor: [0, -24],
-    });
-  };
+  return null
+}
+
+
+export default function OrbitalMap({ anomalies, onFlagAnomaly, onSelectRso, rsos }: OrbitalMapProps) {
+
+  const mapCenter: [number, number] = [20, 0]
 
   return (
-    <div className="bg-[#252836] rounded-lg h-full">
-      <MapContainer
-        center={[0, 0]}
-        zoom={2}
-        style={{ height: "100%", width: "100%", borderRadius: "0.5rem" }}
-        worldCopyJump={true}
-      >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-        />
-        {anomalies.map((a) => (
+    <MapContainer
+      center={mapCenter}
+      zoom={2}
+      className="h-full w-full bg-gray-800 rounded-lg"
+      zoomControl={false}
+    >
+      <TileLayer
+        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      />
+      <MapController anomalies={anomalies} rsos={rsos} />
+
+      {/* Render non-anomalous RSOs */}
+      {rsos.filter(rso => !anomalies.some(a => a.noradId === parseInt(rso.id))).map(rso => (
+        rso.latitude && rso.longitude && (
           <Marker
-            key={a.id}
-            position={[a.location.latitude, a.location.longitude]}
-            icon={getIcon(a.anomalyResult.severity, a.isFlagged)}
+            key={rso.id}
+            position={[rso.latitude, rso.longitude]}
+            icon={satelliteIcon}
+            eventHandlers={{ click: () => onSelectRso(rso) }}
           >
             <Popup>
               <div className="text-black">
-                <b>{a.satelliteName}</b>
-                <br />
-                Anomaly: {a.anomalyResult.anomaly_type}
-                <br />
-                Severity: {a.anomalyResult.severity}
-                <br />
-                {!a.isFlagged && (
-                  <button
-                    onClick={() => onFlagAnomaly(a.id)}
-                    className="mt-2 px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    Flag
-                  </button>
-                )}
+                <h3 className="font-bold">{rso.name}</h3>
+                <p>Status: {rso.status}</p>
+                <p>Threat: {rso.threatLevel}</p>
               </div>
             </Popup>
           </Marker>
-        ))}
-      </MapContainer>
-    </div>
-  );
-};
+        )
+      ))}
 
-export default OrbitalMap;
+      {/* Render anomalies */}
+      {anomalies.map(anomaly => (
+        <Marker
+          key={anomaly.id}
+          position={[anomaly.location.latitude, anomaly.location.longitude]}
+          icon={anomalyIcon}
+          eventHandlers={{ click: () => {
+            const associatedRso = rsos.find(r => r.id === anomaly.noradId?.toString());
+            if (associatedRso) onSelectRso(associatedRso);
+          }}}
+        >
+          <Popup>
+            <div className="text-black">
+              <div className="flex items-center font-bold mb-2">
+                <AlertTriangle className="text-red-500 mr-2" />
+                {anomaly.satelliteName}
+              </div>
+              <p><strong>Anomaly:</strong> {anomaly.anomalyResult.anomaly_type}</p>
+              <p><strong>Severity:</strong> {anomaly.anomalyResult.severity}</p>
+              <p><strong>Timestamp:</strong> {new Date(anomaly.timestamp).toLocaleString()}</p>
+              <button
+                onClick={() => onFlagAnomaly(anomaly.id)}
+                className={`w-full mt-2 p-2 rounded text-white flex items-center justify-center ${
+                  anomaly.isFlagged ? "bg-green-500" : "bg-blue-500"
+                }`}
+              >
+                {anomaly.isFlagged ? <CheckCircle className="mr-2" /> : <Flag className="mr-2" />}
+                {anomaly.isFlagged ? "Flagged" : "Flag Anomaly"}
+              </button>
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+    </MapContainer>
+  )
+}
