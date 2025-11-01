@@ -47,6 +47,25 @@ export interface RSO {
   svmScore: number;
 }
 
+export interface SatelliteDetails {
+    mission_objectives: string;
+    operational_history: string;
+}
+
+export interface TrajectoryPoint {
+    timestamp: string;
+    position: {
+        x: number;
+        y: number;
+        z: number;
+    };
+    velocity: {
+        x: number;
+        y: number;
+        z: number;
+    };
+}
+
 export interface DashboardData {
   header: {
     alerts: number;
@@ -225,38 +244,7 @@ export class RealTimeInferenceService {
       recentEvents: this.anomalies,
       subframes: [],
       logs: [],
-      rsos: [
-        {
-          id: "1",
-          name: "Starlink-1",
-          type: "Communications",
-          threatLevel: "low",
-          orbit: "LEO",
-          autoencoderScore: 10,
-          isolationForestScore: 15,
-          svmScore: 5,
-        },
-        {
-          id: "2",
-          name: "GPS IIF-12",
-          type: "Navigation",
-          threatLevel: "medium",
-          orbit: "MEO",
-          autoencoderScore: 50,
-          isolationForestScore: 45,
-          svmScore: 55,
-        },
-        {
-          id: "3",
-          name: "GOES-16",
-          type: "Weather",
-          threatLevel: "high",
-          orbit: "GEO",
-          autoencoderScore: 90,
-          isolationForestScore: 85,
-          svmScore: 95,
-        },
-      ],
+      rsos: [],
     };
   }
 
@@ -290,6 +278,15 @@ export class RealTimeInferenceService {
 
   onNewData(callback: (data: DashboardData) => void) {
     this.onNewDataCallback = callback;
+  }
+
+  getSatelliteDetails(satelliteName: string, callback: (details: any) => void) {
+    this.socket.emit("get_satellite_details", { satellite_name: satelliteName });
+    this.socket.on("satellite_details", (data) => {
+      if (data.satellite_name === satelliteName) {
+        callback(data);
+      }
+    });
   }
 }
 

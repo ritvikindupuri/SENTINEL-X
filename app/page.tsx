@@ -72,7 +72,7 @@ export default function Dashboard() {
         </div>
         <div className="col-span-4 row-span-8 flex flex-col gap-6">
           <div className="flex-1">
-            <RSOCharacterization rsos={dashboardData.rsos} />
+            <RSOCharacterization rsos={dashboardData.rsos} realTimeInference={realTimeInference} />
           </div>
           <div className="flex-1">
             <Subframes subframes={dashboardData.subframes} />
