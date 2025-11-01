@@ -2,16 +2,35 @@
 
 import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
-import { realTimeInference, type DashboardData } from "@/lib/real-time-inference"
+import { type DashboardData, RSO, RealTimeInferenceService } from "@/lib/real-time-inference"
 import Header from "./components/Header"
 import Log from "./components/Log";
-import RSOCharacterization from "./components/RSOCharacterization";
 import Subframes from "./components/Subframes";
-import ManualAlert from "./components/ManualAlert";
+import { User, LogIn } from 'lucide-react';
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
   ssr: false,
 });
+
+const RSOCharacterization = dynamic(() => import("./components/RSOCharacterization"), {
+  ssr: false,
+});
+
+const DataServiceProvider = dynamic(() => import('./components/DataServiceProvider'), {
+  ssr: false,
+});
+
 
 const initialData: DashboardData = {
   header: { alerts: 0, rsos: 0, ttps: 0, score: 0 },
@@ -28,55 +47,92 @@ const initialData: DashboardData = {
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialData);
-  const [isClient, setIsClient] = useState(false);
+  const [selectedRso, setSelectedRso] = useState<RSO | null>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(true);
+  const [realTimeInference, setRealTimeInference] = useState<RealTimeInferenceService | null>(null);
 
-  useEffect(() => {
-    setIsClient(true);
-    realTimeInference.startRealTimeInference();
+  const handleServiceReady = (service: RealTimeInferenceService) => {
+    setRealTimeInference(service);
+    service.connect();
 
-    const handleNewData = (data: DashboardData) => {
+    service.onNewData((data) => {
       setDashboardData(data);
-    };
+      if (data.rsos.length > 0 && !selectedRso) {
+        setSelectedRso(data.rsos[0]);
+      }
+    });
+  };
 
-    realTimeInference.onNewData(handleNewData);
+  if (!realTimeInference) {
+    return <DataServiceProvider onServiceReady={handleServiceReady} />;
+  }
 
-    return () => {
-      realTimeInference.stopRealTimeInference();
-    };
-  }, []);
+  const handleSaveCredentials = () => {
+    realTimeInference.saveCredentials(username, password);
+    setIsSettingsOpen(false);
+  };
 
-  if (!isClient) {
-    return null; // Render nothing on the server
+  const handleDummyCredentials = () => {
+    realTimeInference.saveCredentials('dummy_user', 'dummy_password');
+    setIsSettingsOpen(false);
   }
 
   const handleFlagAnomaly = (anomalyId: string) => {
     realTimeInference.flagAnomaly(anomalyId);
   };
 
-  const handleManualAlert = (alert: { satelliteName: string; anomalyType: string; severity: "low" | "medium" | "high" }) => {
-    realTimeInference.createManualAlert(alert);
-  };
-
   return (
     <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
       <Header {...dashboardData.header} />
+
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <DialogContent className="sm:max-w-[425px] bg-[#2a2d3e] border-gray-700 text-white">
+          <DialogHeader>
+            <DialogTitle>Space-Track Credentials</DialogTitle>
+            <DialogDescription>
+              Enter your credentials to connect to the Space-Track API.
+              Or, use dummy data to get started immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="username" className="text-right">
+                Username
+              </Label>
+              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} className="col-span-3 bg-gray-800 border-gray-600" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="password"הי" className="text-right">
+                Password
+              </Label>
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="col-span-3 bg-gray-800 border-gray-600" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={handleDummyCredentials} variant="secondary">
+              <LogIn className="mr-2 h-4 w-4" /> Use Dummy Data
+            </Button>
+            <Button type="submit" onClick={handleSaveCredentials}>
+              <User className="mr-2 h-4 w-4" /> Save Credentials
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <main className="flex-1 p-6 grid grid-cols-12 grid-rows-12 gap-6">
         <div className="col-span-8 row-span-8">
           <OrbitalMap
             anomalies={dashboardData.recentEvents}
             onFlagAnomaly={handleFlagAnomaly}
+            onSelectRso={(rso) => setSelectedRso(rso)}
+            rsos={dashboardData.rsos}
           />
         </div>
         <div className="col-span-4 row-span-8 flex flex-col gap-6">
-          <div className="flex-1">
-            <RSOCharacterization rsos={dashboardData.rsos} />
-          </div>
-          <div className="flex-1">
-            <Subframes subframes={dashboardData.subframes} />
-          </div>
-          <div className="flex-1">
-            <ManualAlert onManualAlert={handleManualAlert} />
-          </div>
+          <RSOCharacterization rso={selectedRso} />
+          <Subframes subframes={dashboardData.subframes} />
         </div>
         <div className="col-span-12 row-span-4">
           <Log logs={dashboardData.logs} />
