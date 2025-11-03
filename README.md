@@ -6,12 +6,13 @@ Orbitwatch is a real-time dashboard for monitoring satellite telemetry and detec
 1.  [System Architecture](#system-architecture)
 2.  [Dashboard UI Explained](#dashboard-ui-explained)
 3.  [End-to-End Data Pipeline](#end-to-end-data-pipeline)
-4.  [Data Architecture & API Integration](#data-architecture--api-integration)
-5.  [Machine Learning Models](#machine-learning-models)
-6.  [Backend (Python / Flask)](#backend-python--flask)
-7.  [Frontend (Next.js)](#frontend-nextjs)
-8.  [Setup and Installation](#setup-and-installation)
-9.  [Known Issues](#known-issues)
+4.  [Space-Track API Integration](#space-track-api-integration)
+5.  [Data Storage](#data-storage)
+6.  [Machine Learning Models](#machine-learning-models)
+7.  [Backend (Python / Flask)](#backend-python--flask)
+8.  [Frontend (Next.js)](#frontend-nextjs)
+9.  [Setup and Installation](#setup-and-installation)
+10. [Known Issues](#known-issues)
 
 ---
 
@@ -49,34 +50,48 @@ The entire system is driven by a real-time, in-memory data pipeline that origina
 -   **The orbital data is real.** It is based on official TLE sets from Space-Track and processed with the industry-standard SGP4 physics model.
 -   **The telemetry data is derived.** Since we cannot access the satellite's internal hardware, we generate a high-fidelity, physics-informed estimate of these values. This is a necessary step to create the patterns that the ML models are trained on.
 
-## Data Architecture & API Integration
+## Space-Track API Integration
 
-### API Call for TLE Data
+For a senior developer or employer, understanding the specifics of the external API integration is crucial. This section provides a detailed breakdown.
 
-The backend fetches TLE data by making a `GET` request to the Space-Track API. The request targets a specific set of satellites by their NORAD Catalog ID.
+### Authentication and Security
 
--   **Example API Endpoint:**
+The application ensures that user credentials are handled securely.
+
+1.  **Credential Input:** Credentials are entered on the client-side but are **never stored on the client**.
+2.  **Authentication Request:** They are immediately sent to the backend, which makes a `POST` request to the Space-Track authentication endpoint (`/ajaxauth/login`).
+3.  **Session-Based Security:** Upon successful login, the Space-Track API returns a session cookie. The backend `requests.Session()` object automatically stores this cookie and includes it in all subsequent requests. This is a secure, standard method for API authentication, as the credentials themselves are only transmitted once, and all further communication is authenticated via the session. No API keys or tokens are exposed on the client side.
+
+### API Request for TLE Data
+
+The core data for this application is the Two-Line Element (TLE) set for each satellite.
+
+-   **Request Type:** `GET`
+-   **Endpoint:** `/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/{NORAD_IDS}/format/tle`
+-   **Inputs / Parameters:**
+    -   `{NORAD_IDS}`: A comma-separated string of NORAD Catalog IDs for the satellites to be tracked. For example: `"25544,28654,36516"`.
+-   **Example API Call:**
     ```
     https://www.space-track.org/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/25544,28654,36516/format/tle
     ```
 
-### Returned Data Structure
+### Returned Data Structure (Output)
 
-The Space-Track API returns the TLE data as a plain text string. The data is highly structured and follows a rigid, column-based format. Each satellite is represented by two lines (plus a preceding name line, which we do not use).
-
+-   **Data Format:** The API returns the TLE data as **plain text**, not JSON or XML.
+-   **Structure:** The data is highly structured and follows a rigid, column-based format defined by NORAD. Each satellite is represented by two lines of text, where each character at a specific column index has a precise meaning (e.g., orbital inclination, eccentricity).
 -   **Example TLE Data:**
     ```
     1 25544U 98067A   24303.58555627  .00007889  00000+0  14759-3 0  9999
     2 25544  51.6416 251.2995 0006753  62.1192  28.0003 15.49511256423455
     ```
-    This raw text is then parsed by the backend using the `sgp4` library to create a satellite object for orbital propagation.
+-   **Consumption:** This raw text is the direct input for the `sgp4` library in the backend, which parses it to create a physics-enabled satellite object for orbital propagation.
 
-### Data Storage Solution
+## Data Storage
 
 Orbitwatch is designed for **real-time, in-memory processing**.
 
--   **No Database:** There is no persistent database solution (like SQL or a NoSQL database) in this application.
--   **In-Memory Storage:** All data, including the list of monitored satellites, TLE information, and detected anomalies, is held in memory (in Python lists and dictionaries) for the duration of the application's runtime. This approach prioritizes speed and low latency, which are critical for a real-time monitoring dashboard. Data is fetched and processed on-the-fly, not loaded from a stored collection.
+-   **No Database:** There is no persistent database solution. All data is transient and held in memory for the duration of the application's runtime.
+-   **Rationale:** This approach prioritizes speed and low latency, which are critical for a real-time monitoring dashboard. Data is fetched and processed on-the-fly, not loaded from a stored collection.
 
 ## Machine Learning Models
 
@@ -84,35 +99,35 @@ Orbitwatch uses a multi-model approach for robust anomaly detection.
 
 ### 1. TensorFlow Autoencoder
 -   **Purpose:** Detects subtle deviations in the overall telemetry pattern.
--   **How it Works:** The model learns to reconstruct normal telemetry data. A high reconstruction error indicates the current telemetry is unusual and likely an anomaly.
+-   **How it Works:** The model learns to reconstruct normal telemetry data. A high reconstruction error indicates the current telemetry is unusual.
 
 ### 2. Scikit-learn Isolation Forest
--   **Purpose:** Identifies anomalies by how easily they can be isolated from other data points.
--   **How it Works:** Anomalous points are "few and different" and are therefore easier to separate from normal data. The score reflects how quickly a data point is isolated.
+-   **Purpose:** Identifies anomalies by how easily they can be isolated.
+-   **How it Works:** Anomalous points are "few and different" and are therefore easier to separate from normal data.
 
 ### 3. Scikit-learn One-Class SVM
 -   **Purpose:** Creates a boundary around "normal" data points.
--   **How it Works:** The model learns a boundary around the normal data. Any new data point that falls outside this boundary is considered an anomaly.
+-   **How it Works:** Any new data point that falls outside the learned boundary is considered an anomaly.
 
 ### Composite Threat Score
-The individual scores from the three models are normalized and averaged to produce a single, holistic **Threat Score**, providing a more reliable indicator of a potential anomaly.
+The individual scores are normalized and averaged to produce a single, holistic **Threat Score**.
 
 ## Backend (Python / Flask)
 
--   **Framework:** Flask with the Flask-SocketIO extension.
--   **Core Logic:** Located in `services/ml_service/main.py`.
+-   **Framework:** Flask with Flask-SocketIO.
+-   **Core Logic:** `services/ml_service/main.py`.
 -   **Responsibilities:** Manages the Space-Track API session, runs the data generation loop, performs SGP4 calculations, executes ML models, and streams data to the frontend.
--   **Dependencies:** Managed in `requirements.txt`.
+-   **Dependencies:** `requirements.txt`.
 
 ## Frontend (Next.js)
 
 -   **Framework:** Next.js with React.
--   **UI Components:** Built using ShadCN/UI and styled with Tailwind CSS.
+-   **UI Components:** ShadCN/UI and Tailwind CSS.
 -   **Core Logic:**
-    - The main `Dashboard` component is in `app/page.tsx`.
-    - The `RealTimeInferenceService` manages the WebSocket connection and state.
-    - **Map Visualization:** The `OrbitalMap` component uses Leaflet.js to render satellite positions.
-    - **Data Display:** The `RSOCharacterization` component displays detailed telemetry and anomaly scores.
+    - `app/page.tsx`: Main dashboard component.
+    - `lib/real-time-inference.ts`: Manages WebSocket connection and state.
+    - `app/components/OrbitalMap.tsx`: Renders satellite positions with Leaflet.js.
+    - `app/components/RSOCharacterization.tsx`: Displays detailed telemetry and anomaly scores.
 
 ## Setup and Installation
 
@@ -133,4 +148,4 @@ Open the application in your browser. You will be prompted for Space-Track crede
 
 ## Known Issues
 
--   **Frontend Rendering Crash:** The application is currently affected by a persistent Next.js server-side rendering (SSR) issue that causes the page to load blank with a `500 Internal Server Error`. This is due to the client-side `socket.io-client` library being improperly loaded during the server-side build. This is a framework-level issue that requires further, specialized debugging.
+-   **Frontend Rendering Crash:** The application is currently affected by a persistent Next.js server-side rendering (SSR) issue that causes the page to load blank with a `500 Internal Server Error`. This is a framework-level issue that requires further, specialized debugging.
