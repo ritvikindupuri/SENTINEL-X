@@ -60,16 +60,14 @@ The application ensures that user credentials are handled securely.
 
 1.  **Credential Input:** Credentials are entered on the client-side but are **never stored on the client**.
 2.  **Authentication Request:** They are immediately sent to the backend, which makes a `POST` request to the Space-Track authentication endpoint (`/ajaxauth/login`).
-3.  **Session-Based Security:** Upon successful login, the Space-Track API returns a session cookie. The backend `requests.Session()` object automatically stores this cookie and includes it in all subsequent requests. This is a secure, standard method for API authentication, as the credentials themselves are only transmitted once, and all further communication is authenticated via the session. No API keys or tokens are exposed on the client side.
+3.  **Session-Based Security:** Upon successful login, the Space-Track API returns a session cookie. The backend `requests.Session()` object automatically stores this cookie and includes it in all subsequent requests. This is a secure, standard method for API authentication.
 
 ### API Request for TLE Data
-
-The core data for this application is the Two-Line Element (TLE) set for each satellite.
 
 -   **Request Type:** `GET`
 -   **Endpoint:** `/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/{NORAD_IDS}/format/tle`
 -   **Inputs / Parameters:**
-    -   `{NORAD_IDS}`: A comma-separated string of NORAD Catalog IDs for the satellites to be tracked. For example: `"25544,28654,36516"`.
+    -   `{NORAD_IDS}`: A comma-separated string of NORAD Catalog IDs.
 -   **Example API Call:**
     ```
     https://www.space-track.org/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/25544,28654,36516/format/tle
@@ -77,37 +75,49 @@ The core data for this application is the Two-Line Element (TLE) set for each sa
 
 ### Returned Data Structure (Output)
 
--   **Data Format:** The API returns the TLE data as **plain text**, not JSON or XML.
--   **Structure:** The data is highly structured and follows a rigid, column-based format defined by NORAD. Each satellite is represented by two lines of text, where each character at a specific column index has a precise meaning (e.g., orbital inclination, eccentricity).
+-   **Data Format:** The API returns the TLE data as **plain text**.
+-   **Structure:** The data follows the rigid, column-based TLE format defined by NORAD.
 -   **Example TLE Data:**
     ```
     1 25544U 98067A   24303.58555627  .00007889  00000+0  14759-3 0  9999
     2 25544  51.6416 251.2995 0006753  62.1192  28.0003 15.49511256423455
     ```
--   **Consumption:** This raw text is the direct input for the `sgp4` library in the backend, which parses it to create a physics-enabled satellite object for orbital propagation.
+-   **Consumption:** This raw text is the direct input for the `sgp4` library in the backend.
 
 ## Data Storage
 
-Orbitwatch is designed for **real-time, in-memory processing**.
-
--   **No Database:** There is no persistent database solution. All data is transient and held in memory for the duration of the application's runtime.
--   **Rationale:** This approach prioritizes speed and low latency, which are critical for a real-time monitoring dashboard. Data is fetched and processed on-the-fly, not loaded from a stored collection.
+Orbitwatch is designed for **real-time, in-memory processing** and does not use a persistent database. All data is held in memory for the duration of the application's runtime to prioritize speed and low latency.
 
 ## Machine Learning Models
 
 Orbitwatch uses a multi-model approach for robust anomaly detection.
 
-### 1. TensorFlow Autoencoder
--   **Purpose:** Detects subtle deviations in the overall telemetry pattern.
--   **How it Works:** The model learns to reconstruct normal telemetry data. A high reconstruction error indicates the current telemetry is unusual.
+### Model Explanations & Score Calculation
 
-### 2. Scikit-learn Isolation Forest
+A key feature of Orbitwatch is its use of high-fidelity, physics-based data. This leads to more stable and accurate model performance. The high scores (close to 100) seen during normal operation are a positive sign that the models, trained on consistent SGP4-derived data, are confident that the satellite is behaving as expected.
+
+Here is a detailed breakdown of how each model's 0-100 score is calculated:
+
+#### 1. TensorFlow Autoencoder
+-   **Purpose:** Detects subtle deviations in the overall telemetry pattern.
+-   **How it Works:** The model learns to reconstruct normal telemetry. A high reconstruction error indicates the current telemetry is unusual.
+-   **Score Calculation:**
+    1.  The **Mean Squared Error (MSE)** between the original and reconstructed data is calculated.
+    2.  This error is normalized and inverted, so a lower error results in a higher score: `score = 100 * (1 - min(reconstruction_error / 0.1, 1))`.
+
+#### 2. Scikit-learn Isolation Forest
 -   **Purpose:** Identifies anomalies by how easily they can be isolated.
 -   **How it Works:** Anomalous points are "few and different" and are therefore easier to separate from normal data.
+-   **Score Calculation:**
+    1.  The model's `decision_function` returns a raw score. A positive score is normal, and a negative score is an anomaly.
+    2.  This is converted to a binary 0-100 score: `score = 100 if raw_score >= 0 else 0`.
 
-### 3. Scikit-learn One-Class SVM
+#### 3. Scikit-learn One-Class SVM
 -   **Purpose:** Creates a boundary around "normal" data points.
 -   **How it Works:** Any new data point that falls outside the learned boundary is considered an anomaly.
+-   **Score Calculation:**
+    1.  The SVM's `decision_function` returns a raw score. A positive score is normal, a negative score is an anomaly.
+    2.  This is converted to a binary 0-100 score: `score = 100 if raw_score >= 0 else 0`.
 
 ### Composite Threat Score
 The individual scores are normalized and averaged to produce a single, holistic **Threat Score**.
