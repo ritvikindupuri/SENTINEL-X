@@ -7,7 +7,7 @@ Orbitwatch is a real-time dashboard for monitoring satellite telemetry and detec
 2.  [Dashboard UI Explained](#dashboard-ui-explained)
 3.  [End-to-End Data Pipeline](#end-to-end-data-pipeline)
 4.  [Space-Track API Integration](#space-track-api-integration)
-5.  [Data Storage](#data-storage)
+5.  [Data Architecture: Real-Time, In-Memory Processing](#data-architecture-real-time-in-memory-processing)
 6.  [Machine Learning Models](#machine-learning-models)
 7.  [Backend (Python / Flask)](#backend-python--flask)
 8.  [Frontend (Next.js)](#frontend-nextjs)
@@ -84,9 +84,28 @@ The application ensures that user credentials are handled securely.
     ```
 -   **Consumption:** This raw text is the direct input for the `sgp4` library in the backend.
 
-## Data Storage
+## Data Architecture: Real-Time, In-Memory Processing
 
-Orbitwatch is designed for **real-time, in-memory processing** and does not use a persistent database. All data is held in memory for the duration of the application's runtime to prioritize speed and low latency.
+This section details the application's data storage and processing strategy, which is a critical architectural decision.
+
+### Rationale for an In-Memory Approach
+
+Orbitwatch is designed as a **real-time monitoring dashboard**. The primary requirement is to process and visualize the current state of satellite operations with the lowest possible latency. For this reason, a deliberate choice was made to **not use a persistent database** (like SQL or NoSQL).
+
+-   **Prioritizing Speed:** By holding all data in memory (Python lists and dictionaries), the application avoids the overhead of database transactions (writes, reads, and queries). This ensures that the data pipeline from fetching to visualization is as fast as possible.
+
+### Implications and Data Lifecycle
+
+-   **Transient Data:** The in-memory approach means that all data is **transient**. When the backend server is stopped, all information about monitored satellites and detected anomalies is cleared. The application is a live monitoring tool, not a historical archive.
+-   **Data Lifecycle:**
+    1.  **Fetch:** TLE data is fetched from the Space-Track API.
+    2.  **Hold & Process:** The data is held in Python data structures in memory just long enough to be processed by the SGP4 and ML models.
+    3.  **Stream:** The processed data is immediately streamed to the frontend via WebSocket.
+    4.  **Discard:** As the data loop repeats, the previous state is replaced with the new, live state. Data is never written to disk.
+
+### Future Scalability
+
+While the current model is optimized for real-time performance, it could be extended in the future. If historical analysis or long-term data storage becomes a requirement, a persistent database (e.g., a time-series database like InfluxDB or a document store like MongoDB) could be integrated into the backend. The service could be modified to write the processed data to the database in parallel with streaming it to the frontend.
 
 ## Machine Learning Models
 
