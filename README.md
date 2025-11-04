@@ -6,13 +6,14 @@ Orbitwatch is a real-time dashboard for monitoring satellite telemetry and detec
 1.  [System Architecture](#system-architecture)
 2.  [Dashboard UI Explained](#dashboard-ui-explained)
 3.  [End-to-End Data Pipeline](#end-to-end-data-pipeline)
-4.  [Space-Track API Integration](#space-track-api-integration)
-5.  [Data Architecture: Real-Time, In-Memory Processing](#data-architecture-real-time-in-memory-processing)
-6.  [Machine Learning Models](#machine-learning-models)
-7.  [Backend (Python / Flask)](#backend-python--flask)
-8.  [Frontend (Next.js)](#frontend-nextjs)
-9.  [Setup and Installation](#setup-and-installation)
-10. [Known Issues](#known-issues)
+4.  [Data Flow Diagram](#data-flow-diagram)
+5.  [Space-Track API Integration](#space-track-api-integration)
+6.  [Data Architecture: Real-Time, In-Memory Processing](#data-architecture-real-time-in-memory-processing)
+7.  [Machine Learning Models](#machine-learning-models)
+8.  [Backend (Python / Flask)](#backend-python--flask)
+9.  [Frontend (Next.js)](#frontend-nextjs)
+10. [Setup and Installation](#setup-and-installation)
+11. [Known Issues](#known-issues)
 
 ---
 
@@ -21,9 +22,7 @@ Orbitwatch is a real-time dashboard for monitoring satellite telemetry and detec
 The Orbitwatch application consists of two main components:
 
 1.  **Python Backend:** A Flask application using Socket.IO for real-time communication. It is the authoritative source of all data, responsible for fetching, processing, and analyzing satellite data.
-2.  **Next.js Frontend:** A modern, reactive web interface for visualizing the data provided by the backend. It includes a real-time world map, a detailed RSO (Resident Space Object) characterization panel, and logging components.
-
-The two components communicate via a WebSocket connection, allowing the backend to push live data to the frontend as it is generated.
+2.  **Next.js Frontend:** A modern, reactive web interface for visualizing the data provided by the backend.
 
 ## Dashboard UI Explained
 
@@ -32,7 +31,7 @@ The main dashboard provides a high-level overview of the monitored environment. 
 -   **Alerts:** This is a live count of the total number of anomalies that have been detected by the ML models during the current session.
 -   **RSOs:** This shows the number of Resident Space Objects (satellites) currently being tracked and analyzed by the system.
 -   **TTPs:** This metric represents Tactics, Techniques, and Procedures. It is currently a static placeholder value included for future expansion.
--   **Score:** This is an overall situational awareness score, calculated based on the severity of recent anomalies. It provides a quick, color-coded indication of the current threat level (lower is more severe).
+-   **Score:** This is an overall situational awareness score, calculated based on the severity of recent anomalies.
 
 ## End-to-End Data Pipeline
 
@@ -45,6 +44,39 @@ The entire system is driven by a real-time, in-memory data pipeline that origina
 5.  **ML Anomaly Detection:** This derived telemetry vector is passed to the ML models for anomaly detection.
 6.  **Data Streaming:** The results are packaged and streamed to the frontend via a WebSocket.
 
+## Data Flow Diagram
+
+This diagram illustrates the real-time, in-memory data pipeline of the Orbitwatch application.
+
+```mermaid
+graph TD
+    subgraph Frontend
+        A[User Enters Credentials] --> B{RealTimeInferenceService};
+    end
+
+    subgraph Backend
+        B -- "save_credentials event" --> C[Flask/SocketIO Server];
+        C -- "HTTP POST" --> D[Space-Track API: /ajaxauth/login];
+        D -- "Session Cookie" --> C;
+        C -- "Start Data Generation Loop" --> E{Continuous Loop};
+        E -- "HTTP GET w/ Cookie" --> F[Space-Track API: Get TLE Data];
+        F -- "Raw TLE Text" --> G[Parse TLE];
+        G -- "Satellite Object" --> H[SGP4 Physics Model];
+        H -- "Position & Velocity" --> I[Derive High-Fidelity Telemetry];
+        I -- "Telemetry Vector" --> J[ML Models Anomaly Detection];
+        J -- "Anomaly & Score Data" --> K[In-Memory State];
+        K -- "Package Dashboard Data" --> E;
+    end
+
+    subgraph Frontend
+        K -- "dashboard_data & new_anomaly events via WebSocket" --> L[UI Components];
+        L -- Render --> M[Live Map & RSO Panel];
+    end
+
+    style A fill:#cde4ff
+    style M fill:#cde4ff
+```
+
 ### Data Accuracy Clarification
 
 -   **The orbital data is real.** It is based on official TLE sets from Space-Track and processed with the industry-standard SGP4 physics model.
@@ -52,106 +84,59 @@ The entire system is driven by a real-time, in-memory data pipeline that origina
 
 ## Space-Track API Integration
 
-For a senior developer or employer, understanding the specifics of the external API integration is crucial. This section provides a detailed breakdown.
+This section provides a detailed breakdown of the external API integration.
 
 ### Authentication and Security
 
-The application ensures that user credentials are handled securely.
-
 1.  **Credential Input:** Credentials are entered on the client-side but are **never stored on the client**.
 2.  **Authentication Request:** They are immediately sent to the backend, which makes a `POST` request to the Space-Track authentication endpoint (`/ajaxauth/login`).
-3.  **Session-Based Security:** Upon successful login, the Space-Track API returns a session cookie. The backend `requests.Session()` object automatically stores this cookie and includes it in all subsequent requests. This is a secure, standard method for API authentication.
+3.  **Session-Based Security:** Upon successful login, the Space-Track API returns a session cookie. The backend `requests.Session()` object automatically stores and uses this cookie for all subsequent requests.
 
 ### API Request for TLE Data
-
 -   **Request Type:** `GET`
 -   **Endpoint:** `/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/{NORAD_IDS}/format/tle`
--   **Inputs / Parameters:**
-    -   `{NORAD_IDS}`: A comma-separated string of NORAD Catalog IDs.
--   **Example API Call:**
-    ```
-    https://www.space-track.org/basicspacedata/query/class/tle_latest/ORDINAL/1/NORAD_CAT_ID/25544,28654,36516/format/tle
-    ```
+-   **Inputs / Parameters:** `{NORAD_IDS}`: A comma-separated string of NORAD Catalog IDs.
 
 ### Returned Data Structure (Output)
-
 -   **Data Format:** The API returns the TLE data as **plain text**.
 -   **Structure:** The data follows the rigid, column-based TLE format defined by NORAD.
--   **Example TLE Data:**
-    ```
-    1 25544U 98067A   24303.58555627  .00007889  00000+0  14759-3 0  9999
-    2 25544  51.6416 251.2995 0006753  62.1192  28.0003 15.49511256423455
-    ```
 -   **Consumption:** This raw text is the direct input for the `sgp4` library in the backend.
 
 ## Data Architecture: Real-Time, In-Memory Processing
 
-This section details the application's data storage and processing strategy, which is a critical architectural decision.
-
 ### Rationale for an In-Memory Approach
-
-Orbitwatch is designed as a **real-time monitoring dashboard**. The primary requirement is to process and visualize the current state of satellite operations with the lowest possible latency. For this reason, a deliberate choice was made to **not use a persistent database** (like SQL or NoSQL).
-
--   **Prioritizing Speed:** By holding all data in memory (Python lists and dictionaries), the application avoids the overhead of database transactions (writes, reads, and queries). This ensures that the data pipeline from fetching to visualization is as fast as possible.
+Orbitwatch is designed for **real-time monitoring**. The primary requirement is to process and visualize the current state of satellite operations with the lowest possible latency. For this reason, a deliberate choice was made to **not use a persistent database**.
 
 ### Implications and Data Lifecycle
-
--   **Transient Data:** The in-memory approach means that all data is **transient**. When the backend server is stopped, all information about monitored satellites and detected anomalies is cleared. The application is a live monitoring tool, not a historical archive.
+-   **Transient Data:** All data is **transient**. When the backend server is stopped, all information is cleared. The application is a live monitoring tool, not a historical archive.
 -   **Data Lifecycle:**
     1.  **Fetch:** TLE data is fetched from the Space-Track API.
-    2.  **Hold & Process:** The data is held in Python data structures in memory just long enough to be processed by the SGP4 and ML models.
+    2.  **Hold & Process:** The data is held in Python data structures in memory just long enough to be processed.
     3.  **Stream:** The processed data is immediately streamed to the frontend via WebSocket.
-    4.  **Discard:** As the data loop repeats, the previous state is replaced with the new, live state. Data is never written to disk.
-
-### Future Scalability
-
-While the current model is optimized for real-time performance, it could be extended in the future. If historical analysis or long-term data storage becomes a requirement, a persistent database (e.g., a time-series database like InfluxDB or a document store like MongoDB) could be integrated into the backend. The service could be modified to write the processed data to the database in parallel with streaming it to the frontend.
+    4.  **Discard:** As the data loop repeats, the previous state is replaced with the new, live state.
 
 ## Machine Learning Models
 
-Orbitwatch uses a multi-model approach for robust anomaly detection.
-
 ### Model Explanations & Score Calculation
-
-A key feature of Orbitwatch is its use of high-fidelity, physics-based data. This leads to more stable and accurate model performance. The high scores (close to 100) seen during normal operation are a positive sign that the models, trained on consistent SGP4-derived data, are confident that the satellite is behaving as expected.
+The high scores (close to 100) seen during normal operation are a positive sign that the models are confident that the satellite is behaving as expected based on the high-fidelity, physics-based data.
 
 Here is a detailed breakdown of how each model's 0-100 score is calculated:
 
 #### 1. TensorFlow Autoencoder
--   **Purpose:** Detects subtle deviations in the overall telemetry pattern.
--   **How it Works:** The model learns to reconstruct normal telemetry. A high reconstruction error indicates the current telemetry is unusual.
--   **Score Calculation:**
-    1.  The **Mean Squared Error (MSE)** between the original and reconstructed data is calculated.
-    2.  This error is normalized and inverted, so a lower error results in a higher score: `score = 100 * (1 - min(reconstruction_error / 0.1, 1))`.
+-   **Score Calculation:** The model's reconstruction error (MSE) is normalized and inverted: `score = 100 * (1 - min(reconstruction_error / 0.1, 1))`. A lower error results in a higher score.
 
-#### 2. Scikit-learn Isolation Forest
--   **Purpose:** Identifies anomalies by how easily they can be isolated.
--   **How it Works:** Anomalous points are "few and different" and are therefore easier to separate from normal data.
--   **Score Calculation:**
-    1.  The model's `decision_function` returns a raw score. A positive score is normal, and a negative score is an anomaly.
-    2.  This is converted to a binary 0-100 score: `score = 100 if raw_score >= 0 else 0`.
-
-#### 3. Scikit-learn One-Class SVM
--   **Purpose:** Creates a boundary around "normal" data points.
--   **How it Works:** Any new data point that falls outside the learned boundary is considered an anomaly.
--   **Score Calculation:**
-    1.  The SVM's `decision_function` returns a raw score. A positive score is normal, a negative score is an anomaly.
-    2.  This is converted to a binary 0-100 score: `score = 100 if raw_score >= 0 else 0`.
+#### 2. Scikit-learn Isolation Forest & One-Class SVM
+-   **Score Calculation:** Both models use their `decision_function` to produce a raw score. A positive score is normal (returns 100), and a negative score is an anomaly (returns 0).
 
 ### Composite Threat Score
-The individual scores are normalized and averaged to produce a single, holistic **Threat Score**.
+The individual scores are averaged to produce a single, holistic **Threat Score**.
 
 ## Backend (Python / Flask)
-
--   **Framework:** Flask with Flask-SocketIO.
 -   **Core Logic:** `services/ml_service/main.py`.
 -   **Responsibilities:** Manages the Space-Track API session, runs the data generation loop, performs SGP4 calculations, executes ML models, and streams data to the frontend.
 -   **Dependencies:** `requirements.txt`.
 
 ## Frontend (Next.js)
-
--   **Framework:** Next.js with React.
--   **UI Components:** ShadCN/UI and Tailwind CSS.
 -   **Core Logic:**
     - `app/page.tsx`: Main dashboard component.
     - `lib/real-time-inference.ts`: Manages WebSocket connection and state.
@@ -173,8 +158,5 @@ The individual scores are normalized and averaged to produce a single, holistic 
 1.  Install Node.js dependencies: `npm install`
 2.  Start the server: `npm run dev`
 
-Open the application in your browser. You will be prompted for Space-Track credentials or can use the "Use Dummy Data" option.
-
 ## Known Issues
-
 -   **Frontend Rendering Crash:** The application is currently affected by a persistent Next.js server-side rendering (SSR) issue that causes the page to load blank with a `500 Internal Server Error`. This is a framework-level issue that requires further, specialized debugging.
