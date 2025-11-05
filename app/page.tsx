@@ -4,8 +4,6 @@ import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import { type DashboardData, RSO, RealTimeInferenceService } from "@/lib/real-time-inference"
 import Header from "./components/Header"
-import Log from "./components/Log";
-import Subframes from "./components/Subframes";
 import { User, LogIn } from 'lucide-react';
 import { Button } from "@/components/ui/button"
 import {
@@ -24,6 +22,14 @@ const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
 });
 
 const RSOCharacterization = dynamic(() => import("./components/RSOCharacterization"), {
+  ssr: false,
+});
+
+const Log = dynamic(() => import("./components/Log"), {
+  ssr: false,
+});
+
+const Subframes = dynamic(() => import("./components/Subframes"), {
   ssr: false,
 });
 
@@ -88,7 +94,7 @@ export default function Dashboard() {
       <Header {...dashboardData.header} />
 
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-[#2a2d3e] border-gray-700 text-white">
+        <DialogContent className="sm:max-w-[425px] bg-[#2a2d3e] border-gray-700 text-white z-[1000]">
           <DialogHeader>
             <DialogTitle>Space-Track Credentials</DialogTitle>
             <DialogDescription>
@@ -104,7 +110,7 @@ export default function Dashboard() {
               <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} className="col-span-3 bg-gray-800 border-gray-600" />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="password"הי" className="text-right">
+              <Label htmlFor="password" className="text-right">
                 Password
               </Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="col-span-3 bg-gray-800 border-gray-600" />
