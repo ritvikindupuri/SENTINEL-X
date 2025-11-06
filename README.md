@@ -1,6 +1,63 @@
-# Satellite anomaly detection
+# Orbitwatch: Satellite Anomaly Detection Dashboard
 
-## Features
+Orbitwatch is a real-time satellite anomaly detection dashboard designed for a military space program organization. It provides a comprehensive, at-a-glance view of a satellite constellation, using machine learning to identify and flag anomalous behavior. The application is built with a Next.js frontend and a Python (Flask) backend, communicating via WebSockets for real-time data streaming.
+
+## Core Features
+
+*   **Real-Time Orbital Map:** A Leaflet.js-based map that displays the current position of all satellites in the constellation.
+*   **ML-Powered Anomaly Detection:** Utilizes a suite of machine learning models (TensorFlow Autoencoder, Scikit-learn Isolation Forest, and One-Class SVM) to analyze satellite telemetry and detect anomalies.
+*   **Detailed RSO Characterization:** An interactive panel that provides detailed information about a selected satellite, including its threat score and the output of individual ML models.
+*   **Live Event Log:** A real-time log that streams important events and messages from the backend service.
+
+## Getting Started
+
+### Prerequisites
+
+*   Node.js (v18 or later)
+*   npm
+*   Python (v3.9 or later)
+*   pip
+
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd <repository-directory>
+    ```
+
+2.  **Install frontend dependencies:**
+    ```bash
+    npm install
+    ```
+
+3.  **Install backend dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+## Running the Application
+
+To run Orbitwatch, you must have both the backend and frontend servers running concurrently.
+
+1.  **Start the Backend Service:**
+    Open a terminal and run the following command:
+    ```bash
+    python3 services/ml_service/main.py
+    ```
+    The backend Flask server will start on `http://localhost:5000`.
+
+2.  **Start the Frontend Development Server:**
+    In a separate terminal, run the following command:
+    ```bash
+    npm run dev
+    ```
+    The frontend Next.js application will start on `http://localhost:3000`.
+
+3.  **Access the Application:**
+    Open your web browser and navigate to `http://localhost:3000`. You will be prompted to enter your Space-Track credentials or use dummy data to begin.
+
+## Features in Detail
 
 ### Anomaly Visualization on the Orbital Map
 
