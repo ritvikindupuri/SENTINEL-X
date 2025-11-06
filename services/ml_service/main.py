@@ -127,22 +127,22 @@ def convert_satellite_to_telemetry(satellite, position, velocity):
     }
 
 # --- ML Model Functions ---
-def train_initial_models():
-    print("Generating initial training data...")
-    dummy_sats = parse_tle_and_create_sats(get_mock_tle_data())
+def train_models(sats):
+    print("Generating training data...")
     training_data = []
-    for _ in range(2000): # Generate more data points for better training
-        for norad_id, sat_info in dummy_sats.items():
+    # Generate more data points for better training
+    for _ in range(2000):
+        for norad_id, sat_info in sats.items():
             pos, vel = get_satellite_position(sat_info["satrec"])
             if pos and vel:
-                telemetry = convert_satellite_to_telemetry(sat_info, pos, vel)
+                telemetry = convert_satellite_to_telemetry(
+                    sat_info, pos, vel)
                 training_data.append(list(telemetry.values()))
 
     if not training_data:
         print("Failed to generate training data. Models will not be trained.")
         return
-
-    print("Training initial models...")
+    print("Training models on fetched data...")
     features = np.array(training_data)
     mean = np.mean(features, axis=0)
     std = np.std(features, axis=0)
@@ -264,7 +264,6 @@ def data_generation_loop():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    train_initial_models()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -296,6 +295,7 @@ def handle_save_credentials(data):
         return
 
     sats = parse_tle_and_create_sats(tle_lines)
+    train_models(sats)  # Train models with the fetched data
     with thread_lock:
         monitored_satellites.clear()
         for norad_id, sat_data in sats.items():
