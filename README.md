@@ -83,3 +83,44 @@ The Orbitwatch dashboard provides a real-time visualization of satellite anomali
     *   The component first renders all RSOs, but it filters out any RSO that has a corresponding entry in the `anomalies` prop. This ensures that a satellite identified as an anomaly does not also appear as a normal RSO.
     *   It then iterates through the `anomalies` array and renders a special, larger `Marker` for each anomaly at its specified latitude and longitude.
     *   The popup for an anomaly marker is also uniquely styled with a red alert triangle and provides detailed information about the anomaly's type, severity, and timestamp.
+
+## Machine Learning Models
+
+Orbitwatch employs a sophisticated, multi-model approach to anomaly detection, ensuring a robust and nuanced analysis of satellite behavior. The system uses a combination of an Autoencoder, an Isolation Forest, and a One-Class SVM, all of which are trained and retrained dynamically within the user's session.
+
+### Dynamic, In-Session Training
+
+A critical feature of the Orbitwatch ML pipeline is its dynamic training process, which directly addresses the challenge of data distribution drift.
+
+*   **Training on Live Data:** When a user provides their Space-Track credentials, the backend fetches the latest TLE data for the specified satellites. This data is immediately used to generate a fresh, high-fidelity telemetry dataset.
+*   **In-Session Model Retraining:** All three machine learning models are trained on this newly generated dataset at the beginning of the user's session. This ensures that the models' understanding of "normal" is based on the immediate, real-world operational state of the exact satellites being monitored, rather than on outdated or generic mock data.
+*   **Eliminating Data Drift:** This in-session retraining is the primary mechanism for preventing data distribution drift, a common problem where a model's performance degrades because the live data it's analyzing is statistically different from the data it was trained on.
+
+### Model-Specific Details
+
+#### 1. TensorFlow Autoencoder
+
+*   **Purpose:** The autoencoder is a neural network designed to learn a compressed representation of normal satellite telemetry. It is highly effective at detecting subtle deviations from a learned baseline.
+*   **Overfitting Prevention:** To prevent overfitting—where the model simply memorizes the training data instead of learning its underlying patterns—it is implemented as a **denoising autoencoder**. During training, random noise is added to the input telemetry data, and the model is tasked with reconstructing the original, clean data. This forces the model to learn more robust and generalized features.
+*   **Scoring:**
+    *   The model's `reconstruction error` (the difference between the input data and the model's reconstructed output) is calculated.
+    *   A high reconstruction error implies that the model struggled to reconstruct the input, indicating an anomaly.
+    *   The final score is calculated as: `100 * (1 - min(reconstruction_error / 0.01, 1))`. This formula inverts the error, so a lower error results in a higher score (closer to 100). The scaling factor of `0.01` makes the score highly sensitive to even small errors.
+
+#### 2. Scikit-learn Isolation Forest
+
+*   **Purpose:** The Isolation Forest is a tree-based model that is particularly efficient at detecting outliers in a dataset. It works by "isolating" observations, with anomalies being easier to isolate than normal points.
+*   **Scoring:**
+    *   The model's raw output is its `decision_function`, which provides a score indicating how anomalous a data point is. Scores are typically negative for anomalies and positive for normal data.
+    *   This raw score is converted to a 0-100 scale using the formula: `100 * (1 - min(max(-raw_score, 0), 1))`. This provides a continuous, nuanced score where values closer to 100 indicate normal behavior.
+
+#### 3. Scikit-learn One-Class SVM
+
+*   **Purpose:** A One-Class Support Vector Machine (SVM) is trained to learn a boundary that encompasses the normal data points. Any data that falls outside this learned boundary is considered an anomaly.
+*   **Scoring:**
+    *   Like the Isolation Forest, the SVM's raw output is a `decision_function` score.
+    *   This score is scaled to the 0-100 range using the same formula: `100 * (1 - min(max(-raw_score, 0), 1))`, providing a granular measure of anomaly.
+
+### Overall Threat Score Calculation
+
+The final `threatScore` for a satellite is the average of the individual scores from the three models. An anomaly is officially flagged if this average score falls below a threshold of 75, leveraging the consensus of the models to reduce the likelihood of false positives.
