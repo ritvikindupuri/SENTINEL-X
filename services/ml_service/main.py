@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec, jday
 import numpy as np
+import random
 import tensorflow as tf
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
@@ -149,7 +150,11 @@ def train_initial_models():
     normalized_stats['std'] = std
     normalized_features = (features - mean) / (std + 1e-8)
 
-    autoencoder_model.fit(normalized_features, normalized_features, epochs=50, batch_size=32, verbose=0)
+    # Add noise to prevent overfitting
+    noise_factor = 0.05
+    noisy_features = normalized_features + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=normalized_features.shape)
+
+    autoencoder_model.fit(noisy_features, normalized_features, epochs=50, batch_size=32, verbose=0)
     isolation_forest_model.fit(normalized_features)
     svm_model.fit(normalized_features)
     print("Initial models trained successfully.")
@@ -161,15 +166,17 @@ def run_anomaly_detection(telemetry, satellite):
     # Autoencoder
     reconstruction = autoencoder_model.predict(normalized_features, verbose=0)
     reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
-    ae_score = 100 * (1 - min(reconstruction_error / 0.1, 1))
+    ae_score = 100 * (1 - min(reconstruction_error / 0.01, 1))
 
     # Isolation Forest
     if_score_raw = isolation_forest_model.decision_function(normalized_features)[0]
-    if_score = 100 * (1 if if_score_raw >= 0 else 0)
+    # Scale the score: closer to 0 is more normal. We clamp and invert.
+    if_score = 100 * (1 - min(max(-if_score_raw, 0), 1))
 
     # One-Class SVM
     svm_score_raw = svm_model.decision_function(normalized_features)[0]
-    svm_score = 100 * (1 if svm_score_raw >= 0 else 0)
+    # Similar scaling for SVM score
+    svm_score = 100 * (1 - min(max(-svm_score_raw, 0), 1))
 
     avg_score = (ae_score + if_score + svm_score) / 3
 
