@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec, jday
 import numpy as np
+import random
 import tensorflow as tf
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
@@ -126,22 +127,22 @@ def convert_satellite_to_telemetry(satellite, position, velocity):
     }
 
 # --- ML Model Functions ---
-def train_initial_models():
-    print("Generating initial training data...")
-    dummy_sats = parse_tle_and_create_sats(get_mock_tle_data())
+def train_models(sats):
+    print("Generating training data...")
     training_data = []
-    for _ in range(2000): # Generate more data points for better training
-        for norad_id, sat_info in dummy_sats.items():
+    # Generate more data points for better training
+    for _ in range(2000):
+        for norad_id, sat_info in sats.items():
             pos, vel = get_satellite_position(sat_info["satrec"])
             if pos and vel:
-                telemetry = convert_satellite_to_telemetry(sat_info, pos, vel)
+                telemetry = convert_satellite_to_telemetry(
+                    sat_info, pos, vel)
                 training_data.append(list(telemetry.values()))
 
     if not training_data:
         print("Failed to generate training data. Models will not be trained.")
         return
-
-    print("Training initial models...")
+    print("Training models on fetched data...")
     features = np.array(training_data)
     mean = np.mean(features, axis=0)
     std = np.std(features, axis=0)
@@ -149,7 +150,11 @@ def train_initial_models():
     normalized_stats['std'] = std
     normalized_features = (features - mean) / (std + 1e-8)
 
-    autoencoder_model.fit(normalized_features, normalized_features, epochs=50, batch_size=32, verbose=0)
+    # Add noise to prevent overfitting
+    noise_factor = 0.05
+    noisy_features = normalized_features + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=normalized_features.shape)
+
+    autoencoder_model.fit(noisy_features, normalized_features, epochs=50, batch_size=32, verbose=0)
     isolation_forest_model.fit(normalized_features)
     svm_model.fit(normalized_features)
     print("Initial models trained successfully.")
@@ -161,15 +166,17 @@ def run_anomaly_detection(telemetry, satellite):
     # Autoencoder
     reconstruction = autoencoder_model.predict(normalized_features, verbose=0)
     reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
-    ae_score = 100 * (1 - min(reconstruction_error / 0.1, 1))
+    ae_score = 100 * (1 - min(reconstruction_error / 0.01, 1))
 
     # Isolation Forest
     if_score_raw = isolation_forest_model.decision_function(normalized_features)[0]
-    if_score = 100 * (1 if if_score_raw >= 0 else 0)
+    # Scale the score: closer to 0 is more normal. We clamp and invert.
+    if_score = 100 * (1 - min(max(-if_score_raw, 0), 1))
 
     # One-Class SVM
     svm_score_raw = svm_model.decision_function(normalized_features)[0]
-    svm_score = 100 * (1 if svm_score_raw >= 0 else 0)
+    # Similar scaling for SVM score
+    svm_score = 100 * (1 - min(max(-svm_score_raw, 0), 1))
 
     avg_score = (ae_score + if_score + svm_score) / 3
 
@@ -257,7 +264,6 @@ def data_generation_loop():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    train_initial_models()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -289,6 +295,7 @@ def handle_save_credentials(data):
         return
 
     sats = parse_tle_and_create_sats(tle_lines)
+    train_models(sats)  # Train models with the fetched data
     with thread_lock:
         monitored_satellites.clear()
         for norad_id, sat_data in sats.items():
