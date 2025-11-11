@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from sgp4.api import Satrec, jday
 import numpy as np
+import random
 import tensorflow as tf
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
@@ -29,6 +30,7 @@ anomalies_detected = []
 monitored_satellites = []
 telemetry_data_store = {}
 norad_ids = ["25544", "28654", "36516", "33591", "43135"] # ISS, Hubble, etc.
+satellite_models = {}
 
 # --- ML Model Initialization ---
 def create_autoencoder(input_dim):
@@ -41,15 +43,6 @@ def create_autoencoder(input_dim):
     autoencoder = tf.keras.Model(inputs=input_layer, outputs=decoded)
     autoencoder.compile(optimizer="adam", loss="mean_squared_error")
     return autoencoder
-
-autoencoder_model = create_autoencoder(8)
-isolation_forest_model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
-svm_model = OneClassSVM(nu=0.05, kernel="rbf", gamma="scale")
-
-normalized_stats = {
-    'mean': np.zeros(8),
-    'std': np.ones(8),
-}
 
 # --- Data Fetching & Processing ---
 def login_spacetrack(username, password):
@@ -126,50 +119,76 @@ def convert_satellite_to_telemetry(satellite, position, velocity):
     }
 
 # --- ML Model Functions ---
-def train_initial_models():
-    print("Generating initial training data...")
-    dummy_sats = parse_tle_and_create_sats(get_mock_tle_data())
-    training_data = []
-    for _ in range(2000): # Generate more data points for better training
-        for norad_id, sat_info in dummy_sats.items():
+def train_models(sats):
+    global satellite_models
+    print("Starting model training for all satellites...")
+
+    for norad_id, sat_info in sats.items():
+        print(f"Generating training data for satellite {norad_id}...")
+        training_data = []
+        for _ in range(2000):  # Generate a rich dataset for each satellite
             pos, vel = get_satellite_position(sat_info["satrec"])
             if pos and vel:
                 telemetry = convert_satellite_to_telemetry(sat_info, pos, vel)
                 training_data.append(list(telemetry.values()))
 
-    if not training_data:
-        print("Failed to generate training data. Models will not be trained.")
-        return
+        if not training_data:
+            print(f"Failed to generate training data for {norad_id}. Skipping.")
+            continue
 
-    print("Training initial models...")
-    features = np.array(training_data)
-    mean = np.mean(features, axis=0)
-    std = np.std(features, axis=0)
-    normalized_stats['mean'] = mean
-    normalized_stats['std'] = std
-    normalized_features = (features - mean) / (std + 1e-8)
+        print(f"Training models for satellite {norad_id}...")
+        features = np.array(training_data)
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0)
+        normalized_features = (features - mean) / (std + 1e-8)
 
-    autoencoder_model.fit(normalized_features, normalized_features, epochs=50, batch_size=32, verbose=0)
-    isolation_forest_model.fit(normalized_features)
-    svm_model.fit(normalized_features)
-    print("Initial models trained successfully.")
+        # Create a new set of models for this specific satellite
+        autoencoder = create_autoencoder(features.shape[1])
+        iso_forest = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
+        svm = OneClassSVM(nu=0.05, kernel="rbf", gamma="scale")
 
-def run_anomaly_detection(telemetry, satellite):
+        # Add noise to prevent overfitting
+        noise_factor = 0.05
+        noisy_features = normalized_features + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=normalized_features.shape)
+
+        # Train the models
+        autoencoder.fit(noisy_features, normalized_features, epochs=50, batch_size=32, verbose=0)
+        iso_forest.fit(normalized_features)
+        svm.fit(normalized_features)
+
+        # Store the trained models and normalization stats
+        satellite_models[norad_id] = {
+            "autoencoder": autoencoder,
+            "isolation_forest": iso_forest,
+            "svm": svm,
+            "stats": {"mean": mean, "std": std}
+        }
+        print(f"Models for satellite {norad_id} trained successfully.")
+
+def run_anomaly_detection(telemetry, satellite, norad_id):
+    if norad_id not in satellite_models:
+        print(f"No models found for satellite {norad_id}. Skipping anomaly detection.")
+        return {"is_anomaly": False, "scores": {
+            "autoencoder": 100, "isolationForest": 100, "svm": 100, "threatScore": 100
+        }}
+
+    models = satellite_models[norad_id]
+    stats = models["stats"]
     features = np.array([list(telemetry.values())])
-    normalized_features = (features - normalized_stats['mean']) / (normalized_stats['std'] + 1e-8)
+    normalized_features = (features - stats['mean']) / (stats['std'] + 1e-8)
 
     # Autoencoder
-    reconstruction = autoencoder_model.predict(normalized_features, verbose=0)
+    reconstruction = models["autoencoder"].predict(normalized_features, verbose=0)
     reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
-    ae_score = 100 * (1 - min(reconstruction_error / 0.1, 1))
+    ae_score = 100 * (1 - min(reconstruction_error / 0.01, 1))
 
     # Isolation Forest
-    if_score_raw = isolation_forest_model.decision_function(normalized_features)[0]
-    if_score = 100 * (1 if if_score_raw >= 0 else 0)
+    if_score_raw = models["isolation_forest"].decision_function(normalized_features)[0]
+    if_score = 100 * (1 - min(max(-if_score_raw, 0), 1))
 
     # One-Class SVM
-    svm_score_raw = svm_model.decision_function(normalized_features)[0]
-    svm_score = 100 * (1 if svm_score_raw >= 0 else 0)
+    svm_score_raw = models["svm"].decision_function(normalized_features)[0]
+    svm_score = 100 * (1 - min(max(-svm_score_raw, 0), 1))
 
     avg_score = (ae_score + if_score + svm_score) / 3
 
@@ -220,7 +239,7 @@ def data_generation_loop():
                 telemetry = convert_satellite_to_telemetry(sat_info, position, velocity)
                 telemetry_data_store[norad_id] = telemetry
 
-                anomaly_result = run_anomaly_detection(telemetry, sat_info)
+                anomaly_result = run_anomaly_detection(telemetry, sat_info, norad_id)
 
                 rso_data = {
                     "id": norad_id,
@@ -257,7 +276,6 @@ def data_generation_loop():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    train_initial_models()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -289,6 +307,7 @@ def handle_save_credentials(data):
         return
 
     sats = parse_tle_and_create_sats(tle_lines)
+    train_models(sats)
     with thread_lock:
         monitored_satellites.clear()
         for norad_id, sat_data in sats.items():
