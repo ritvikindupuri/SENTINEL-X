@@ -322,7 +322,6 @@ def handle_save_credentials(data):
     data_thread = threading.Thread(target=data_generation_loop)
     data_thread.start()
 
-
 # --- Utility Functions ---
 def get_lat_lon_alt(position_km, time_jd):
     """Converts ECI coordinates to latitude, longitude, and altitude."""

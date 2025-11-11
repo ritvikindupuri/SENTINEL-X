@@ -125,7 +125,7 @@ export default function Dashboard() {
       </Dialog>
 
       <main className="flex-1 p-6 grid grid-cols-12 grid-rows-12 gap-6">
-        <div className="col-span-8 row-span-8">
+        <div className="col-span-8 row-span-7">
           <OrbitalMap
             anomalies={dashboardData.recentEvents}
             onFlagAnomaly={handleFlagAnomaly}
@@ -133,11 +133,11 @@ export default function Dashboard() {
             rsos={dashboardData.rsos}
           />
         </div>
-        <div className="col-span-4 row-span-8 flex flex-col gap-6">
+        <div className="col-span-4 row-span-7 flex flex-col gap-6">
           <RSOCharacterization rso={selectedRso} />
           <Subframes subframes={dashboardData.subframes} />
         </div>
-        <div className="col-span-12 row-span-4">
+        <div className="col-span-12 row-span-5">
           <Log logs={dashboardData.logs} />
         </div>
       </main>
