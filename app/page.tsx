@@ -33,10 +33,9 @@ const Subframes = dynamic(() => import("./components/Subframes"), {
   ssr: false,
 });
 
-const DataServiceProvider = dynamic(() => import('./components/DataServiceProvider'), {
+const ClientSideServices = dynamic(() => import('./components/ClientSideServices'), {
   ssr: false,
 });
-
 
 const initialData: DashboardData = {
   header: { alerts: 0, rsos: 0, ttps: 0, score: 0 },
@@ -71,11 +70,8 @@ export default function Dashboard() {
     });
   };
 
-  if (!realTimeInference) {
-    return <DataServiceProvider onServiceReady={handleServiceReady} />;
-  }
-
   const handleSaveCredentials = () => {
+    if (!realTimeInference) return;
     realTimeInference.saveCredentials(username, password);
     setIsSettingsOpen(false);
   };
@@ -90,10 +86,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
-      <Header {...dashboardData.header} />
+    <ClientSideServices onServiceReady={handleServiceReady}>
+      <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
+        <Header {...dashboardData.header} />
 
-      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogContent className="sm:max-w-[425px] bg-[#2a2d3e] border-gray-700 text-white z-[1000]">
           <DialogHeader>
             <DialogTitle>Space-Track Credentials</DialogTitle>
@@ -145,5 +142,6 @@ export default function Dashboard() {
         </div>
       </main>
     </div>
+    </ClientSideServices>
   );
 }

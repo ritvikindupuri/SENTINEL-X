@@ -31,7 +31,13 @@ Orbitwatch is a real-time satellite anomaly detection dashboard designed for a m
     npm install
     ```
 
-3.  **Install backend dependencies:**
+3.  **Install UI Components:**
+    The project uses several `shadcn/ui` components that need to be explicitly added. Run the following command to install them:
+    ```bash
+    npx shadcn@latest add card tabs badge button input label
+    ```
+
+4.  **Install backend dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
