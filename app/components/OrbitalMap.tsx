@@ -1,11 +1,26 @@
 
 "use client"
 
+import { useEffect, useState } from "react"
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet"
 import "leaflet/dist/leaflet.css"
 import L from "leaflet"
-import { RealTimeAnomaly, RSO } from "@/lib/real-time-inference"
+import { RSO } from "@/lib/real-time-inference"
 import { AlertTriangle, Flag, CheckCircle } from "lucide-react"
+
+// Define the RealTimeAnomaly type locally
+interface RealTimeAnomaly {
+  id: string;
+  norad_id: number;
+  timestamp: string;
+  location: {
+    lat: number;
+    lon: number;
+  };
+  anomaly_type: string;
+  severity: string;
+  isFlagged: boolean;
+}
 
 // -- Leaflet Icon Configuration --
 const satelliteIcon = new L.Icon({
@@ -24,7 +39,6 @@ const anomalyIcon = new L.Icon({
 
 
 interface OrbitalMapProps {
-  anomalies: RealTimeAnomaly[]
   onFlagAnomaly: (anomalyId: string) => void
   onSelectRso: (rso: RSO) => void
   rsos: RSO[]
@@ -37,8 +51,8 @@ const MapController = ({ anomalies, rsos }: { anomalies: RealTimeAnomaly[], rsos
   useEffect(() => {
     const target = rsos.find(r => r.latitude && r.longitude) || anomalies.find(a => a.location)
     if (target) {
-      const lat = 'latitude' in target ? target.latitude : target.location.latitude;
-      const lng = 'longitude' in target ? target.longitude : target.location.longitude;
+      const lat = 'latitude' in target ? target.latitude : target.location.lat;
+      const lng = 'longitude' in target ? target.longitude : target.location.lon;
       map.flyTo([lat, lng], map.getZoom(), {
         animate: true,
         duration: 1.5
@@ -50,7 +64,25 @@ const MapController = ({ anomalies, rsos }: { anomalies: RealTimeAnomaly[], rsos
 }
 
 
-export default function OrbitalMap({ anomalies, onFlagAnomaly, onSelectRso, rsos }: OrbitalMapProps) {
+export default function OrbitalMap({ onFlagAnomaly, onSelectRso, rsos }: OrbitalMapProps) {
+  const [anomalies, setAnomalies] = useState<RealTimeAnomaly[]>([]);
+
+  useEffect(() => {
+    const fetchAnomalies = async () => {
+      try {
+        const response = await fetch('/api/anomalies');
+        const data = await response.json();
+        setAnomalies(data);
+      } catch (error) {
+        console.error('Failed to fetch anomalies:', error);
+      }
+    };
+
+    fetchAnomalies();
+    const interval = setInterval(fetchAnomalies, 5000); // Fetch every 5 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   const mapCenter: [number, number] = [20, 0]
 
@@ -68,7 +100,7 @@ export default function OrbitalMap({ anomalies, onFlagAnomaly, onSelectRso, rsos
       <MapController anomalies={anomalies} rsos={rsos} />
 
       {/* Render non-anomalous RSOs */}
-      {rsos.filter(rso => !anomalies.some(a => a.noradId === parseInt(rso.id))).map(rso => (
+      {rsos.filter(rso => !anomalies.some(a => a.norad_id === parseInt(rso.id))).map(rso => (
         rso.latitude && rso.longitude && (
           <Marker
             key={rso.id}
@@ -91,10 +123,10 @@ export default function OrbitalMap({ anomalies, onFlagAnomaly, onSelectRso, rsos
       {anomalies.map(anomaly => (
         <Marker
           key={anomaly.id}
-          position={[anomaly.location.latitude, anomaly.location.longitude]}
+          position={[anomaly.location.lat, anomaly.location.lon]}
           icon={anomalyIcon}
           eventHandlers={{ click: () => {
-            const associatedRso = rsos.find(r => r.id === anomaly.noradId?.toString());
+            const associatedRso = rsos.find(r => r.id === anomaly.norad_id?.toString());
             if (associatedRso) onSelectRso(associatedRso);
           }}}
         >
@@ -102,10 +134,10 @@ export default function OrbitalMap({ anomalies, onFlagAnomaly, onSelectRso, rsos
             <div className="text-black">
               <div className="flex items-center font-bold mb-2">
                 <AlertTriangle className="text-red-500 mr-2" />
-                {anomaly.satelliteName}
+                {rsos.find(r => r.id === anomaly.norad_id?.toString())?.name || anomaly.norad_id}
               </div>
-              <p><strong>Anomaly:</strong> {anomaly.anomalyResult.anomaly_type}</p>
-              <p><strong>Severity:</strong> {anomaly.anomalyResult.severity}</p>
+              <p><strong>Anomaly:</strong> {anomaly.anomaly_type}</p>
+              <p><strong>Severity:</strong> {anomaly.severity}</p>
               <p><strong>Timestamp:</strong> {new Date(anomaly.timestamp).toLocaleString()}</p>
               <button
                 onClick={() => onFlagAnomaly(anomaly.id)}
