@@ -14,9 +14,13 @@ from sklearn.ensemble import IsolationForest
 from flask import Flask
 from flask_socketio import SocketIO, emit
 import threading
+from elasticsearch import Elasticsearch
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# --- Elasticsearch Client ---
+es_client = Elasticsearch("http://localhost:9200")
 
 # --- Global State & Configuration ---
 SPACETRACK_URL = "https://www.space-track.org"
@@ -43,13 +47,20 @@ def create_autoencoder(input_dim):
     autoencoder.compile(optimizer="adam", loss="mean_squared_error")
     return autoencoder
 
-autoencoder_model = create_autoencoder(8)
-isolation_forest_model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
-svm_model = OneClassSVM(nu=0.05, kernel="rbf", gamma="scale")
-
-normalized_stats = {
-    'mean': np.zeros(8),
-    'std': np.ones(8),
+# --- ML Model Dictionaries (LEO/GEO) ---
+models = {
+    "LEO": {
+        "autoencoder": create_autoencoder(8),
+        "isolation_forest": IsolationForest(n_estimators=100, contamination=0.05, random_state=42),
+        "svm": OneClassSVM(nu=0.05, kernel="rbf", gamma="scale"),
+        "normalized_stats": {'mean': np.zeros(8), 'std': np.ones(8)}
+    },
+    "GEO": {
+        "autoencoder": create_autoencoder(8),
+        "isolation_forest": IsolationForest(n_estimators=100, contamination=0.05, random_state=42),
+        "svm": OneClassSVM(nu=0.05, kernel="rbf", gamma="scale"),
+        "normalized_stats": {'mean': np.zeros(8), 'std': np.ones(8)}
+    }
 }
 
 # --- Data Fetching & Processing ---
@@ -129,52 +140,58 @@ def convert_satellite_to_telemetry(satellite, position, velocity):
 # --- ML Model Functions ---
 def train_models(sats):
     print("Generating training data...")
-    training_data = []
+    training_data = {"LEO": [], "GEO": []}
+
     # Generate more data points for better training
     for _ in range(2000):
         for norad_id, sat_info in sats.items():
+            orbit_type = classify_satellite_orbit(sat_info["satrec"])
             pos, vel = get_satellite_position(sat_info["satrec"])
             if pos and vel:
-                telemetry = convert_satellite_to_telemetry(
-                    sat_info, pos, vel)
-                training_data.append(list(telemetry.values()))
+                telemetry = convert_satellite_to_telemetry(sat_info, pos, vel)
+                training_data[orbit_type].append(list(telemetry.values()))
 
-    if not training_data:
-        print("Failed to generate training data. Models will not be trained.")
-        return
-    print("Training models on fetched data...")
-    features = np.array(training_data)
-    mean = np.mean(features, axis=0)
-    std = np.std(features, axis=0)
-    normalized_stats['mean'] = mean
-    normalized_stats['std'] = std
-    normalized_features = (features - mean) / (std + 1e-8)
+    for orbit_type in ["LEO", "GEO"]:
+        if not training_data[orbit_type]:
+            print(f"No training data for {orbit_type} satellites. Models not trained.")
+            continue
 
-    # Add noise to prevent overfitting
-    noise_factor = 0.05
-    noisy_features = normalized_features + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=normalized_features.shape)
+        print(f"Training {orbit_type} models on fetched data...")
+        features = np.array(training_data[orbit_type])
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0)
+        models[orbit_type]['normalized_stats']['mean'] = mean
+        models[orbit_type]['normalized_stats']['std'] = std
+        normalized_features = (features - mean) / (std + 1e-8)
 
-    autoencoder_model.fit(noisy_features, normalized_features, epochs=50, batch_size=32, verbose=0)
-    isolation_forest_model.fit(normalized_features)
-    svm_model.fit(normalized_features)
-    print("Initial models trained successfully.")
+        # Add noise to prevent overfitting
+        noise_factor = 0.05
+        noisy_features = normalized_features + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=normalized_features.shape)
+
+        models[orbit_type]['autoencoder'].fit(noisy_features, normalized_features, epochs=50, batch_size=32, verbose=0)
+        models[orbit_type]['isolation_forest'].fit(normalized_features)
+        models[orbit_type]['svm'].fit(normalized_features)
+        print(f"{orbit_type} models trained successfully.")
 
 def run_anomaly_detection(telemetry, satellite):
+    orbit_type = classify_satellite_orbit(satellite['satrec'])
+    model_set = models[orbit_type]
+
     features = np.array([list(telemetry.values())])
-    normalized_features = (features - normalized_stats['mean']) / (normalized_stats['std'] + 1e-8)
+    normalized_features = (features - model_set['normalized_stats']['mean']) / (model_set['normalized_stats']['std'] + 1e-8)
 
     # Autoencoder
-    reconstruction = autoencoder_model.predict(normalized_features, verbose=0)
+    reconstruction = model_set['autoencoder'].predict(normalized_features, verbose=0)
     reconstruction_error = np.mean(np.square(normalized_features - reconstruction))
     ae_score = 100 * (1 - min(reconstruction_error / 0.01, 1))
 
     # Isolation Forest
-    if_score_raw = isolation_forest_model.decision_function(normalized_features)[0]
+    if_score_raw = model_set['isolation_forest'].decision_function(normalized_features)[0]
     # Scale the score: closer to 0 is more normal. We clamp and invert.
     if_score = 100 * (1 - min(max(-if_score_raw, 0), 1))
 
     # One-Class SVM
-    svm_score_raw = svm_model.decision_function(normalized_features)[0]
+    svm_score_raw = model_set['svm'].decision_function(normalized_features)[0]
     # Similar scaling for SVM score
     svm_score = 100 * (1 - min(max(-svm_score_raw, 0), 1))
 
@@ -228,6 +245,20 @@ def data_generation_loop():
                 telemetry_data_store[norad_id] = telemetry
 
                 anomaly_result = run_anomaly_detection(telemetry, sat_info)
+
+                # Index data into Elasticsearch
+                doc = {
+                    'norad_id': norad_id,
+                    'timestamp': datetime.utcnow(),
+                    'telemetry': telemetry,
+                    'scores': anomaly_result['scores'],
+                    'is_anomaly': anomaly_result['is_anomaly'],
+                    'location': {
+                        'lat': lat,
+                        'lon': lon,
+                    }
+                }
+                es_client.index(index="orbitwatch-metrics", document=doc)
 
                 rso_data = {
                     "id": norad_id,
@@ -312,6 +343,14 @@ def handle_save_credentials(data):
 
 
 # --- Utility Functions ---
+def classify_satellite_orbit(satrec):
+    """Classifies a satellite as LEO or GEO based on its orbital period."""
+    mean_motion = satrec.no_kozai # Revolutions per day
+    if mean_motion > 11.25: # Corresponds to an orbital period of ~2 hours
+        return "LEO"
+    else: # For simplicity, all others are GEO for now
+        return "GEO"
+
 def get_lat_lon_alt(position_km, time_jd):
     """Converts ECI coordinates to latitude, longitude, and altitude."""
     # This is a simplified conversion and has limitations
