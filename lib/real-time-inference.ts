@@ -7,25 +7,14 @@ const ML_SERVICE_URL = "http://localhost:5000";
 
 export interface RealTimeAnomaly {
   id: string;
-  satelliteName: string;
-  noradId?: number;
-  anomalyResult: {
-    is_anomaly: boolean;
-    anomaly_type: string;
-    severity: "low" | "medium" | "high";
-    scores: {
-      autoencoder: number;
-      isolationForest: number;
-      svm: number;
-      threatScore: number;
-    }
-  };
+  norad_id: number;
   timestamp: string;
   location: {
-    latitude: number;
-    longitude: number;
-    altitude: number;
+    lat: number;
+    lon: number;
   };
+  anomaly_type: string;
+  severity: "low" | "medium" | "high";
   isFlagged?: boolean;
 }
 
@@ -72,6 +61,9 @@ export interface DashboardData {
   subframes: Subframe[];
   logs: LogEntry[];
   rsos: RSO[];
+  anomalies: RealTimeAnomaly[];
+  anomaly_count: number;
+  anomaly_breakdown: Array<{ key: string; doc_count: number }>;
 }
 
 // --- Real-Time Service ---
@@ -81,6 +73,8 @@ export class RealTimeInferenceService {
   private rsos: RSO[] = [];
   private logs: LogEntry[] = [];
   private subframes: Subframe[] = [];
+  private anomaly_count: number = 0;
+  private anomaly_breakdown: Array<{ key: string; doc_count: number }> = [];
 
   private onNewDataCallback: (data: DashboardData) => void = () => {};
   public socket: any = null;
@@ -100,18 +94,14 @@ export class RealTimeInferenceService {
     this.socket.on("disconnect", () => console.log("Disconnected from Python ML service"));
     this.socket.on("auth_error", (error: {message: string}) => console.error("Authentication Error:", error.message));
 
-    this.socket.on("dashboard_data", (data: { rsos: RSO[], logs: LogEntry[], subframes: Subframe[] }) => {
+    this.socket.on("dashboard_data", (data: DashboardData) => {
       this.rsos = data.rsos || [];
       this.logs = data.logs || [];
       this.subframes = data.subframes || [];
+      this.anomalies = data.anomalies || [];
+      this.anomaly_count = data.anomaly_count || 0;
+      this.anomaly_breakdown = data.anomaly_breakdown || [];
       this.emitFullDashboardData();
-    });
-
-    this.socket.on("new_anomaly", (newAnomaly: RealTimeAnomaly) => {
-      console.log("Received new anomaly:", newAnomaly);
-      if (!this.anomalies.some(a => a.id === newAnomaly.id)) {
-        this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
-      }
     });
   }
 
@@ -142,7 +132,7 @@ export class RealTimeInferenceService {
     const score = this.calculateOverallScore();
     return {
       header: {
-        alerts: this.anomalies.length,
+        alerts: this.anomaly_count,
         rsos: this.rsos.length,
         ttps: 4, // static placeholder
         score: score,
@@ -167,17 +157,20 @@ export class RealTimeInferenceService {
       subframes: this.subframes,
       logs: this.logs,
       rsos: this.rsos,
+      anomalies: this.anomalies,
+      anomaly_count: this.anomaly_count,
+      anomaly_breakdown: this.anomaly_breakdown,
     };
   }
 
   private calculateOverallScore(): number {
-    if (this.anomalies.length === 0) return 0;
+    if (this.anomaly_count === 0) return 0;
     const severityScores = { "low": 10, "medium": 40, "high": 80 };
     const totalScore = this.anomalies.reduce((acc, a) => {
-      const severity = a.anomalyResult?.severity as keyof typeof severityScores;
+      const severity = a.severity as keyof typeof severityScores;
       return acc + (severityScores[severity] || 0);
     }, 0);
-    return Math.min(100, Math.floor(totalScore / this.anomalies.length));
+    return Math.min(100, Math.floor(totalScore / this.anomaly_count));
   }
 
   public flagAnomaly(anomalyId: string) {
