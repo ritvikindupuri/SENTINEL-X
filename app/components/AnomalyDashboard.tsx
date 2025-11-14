@@ -1,29 +1,13 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
 import { ShieldAlert } from "lucide-react"
 
-export default function AnomalyDashboard() {
-  const [anomalyCount, setAnomalyCount] = useState(0);
+interface AnomalyDashboardProps {
+  anomalyCount: number;
+}
 
-  useEffect(() => {
-    const fetchAnomalies = async () => {
-      try {
-        const response = await fetch('/api/anomalies');
-        const data = await response.json();
-        setAnomalyCount(data.length);
-      } catch (error) {
-        console.error('Failed to fetch anomaly count:', error);
-      }
-    };
-
-    fetchAnomalies();
-    const interval = setInterval(fetchAnomalies, 5000); // Fetch every 5 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
+export default function AnomalyDashboard({ anomalyCount }: AnomalyDashboardProps) {
   return (
     <div className="bg-gray-800 p-4 rounded-lg">
       <h2 className="text-lg font-semibold mb-2 flex items-center">

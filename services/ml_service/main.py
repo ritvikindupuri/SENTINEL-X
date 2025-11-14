@@ -14,13 +14,9 @@ from sklearn.ensemble import IsolationForest
 from flask import Flask
 from flask_socketio import SocketIO, emit
 import threading
-from elasticsearch import Elasticsearch
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-
-# --- Elasticsearch Client ---
-es_client = Elasticsearch("http://localhost:9200")
 
 # --- Global State & Configuration ---
 SPACETRACK_URL = "https://www.space-track.org"
@@ -30,7 +26,6 @@ stop_thread = threading.Event()
 thread_lock = threading.Lock()
 
 # In-memory data stores
-anomalies_detected = []
 monitored_satellites = []
 telemetry_data_store = {}
 norad_ids = ["25544", "28654", "36516", "33591", "43135"] # ISS, Hubble, etc.
@@ -218,6 +213,8 @@ def run_anomaly_detection(telemetry, satellite):
          "threatScore": avg_score
     }}
 
+from collections import Counter
+
 # --- Data Generation Loop ---
 def data_generation_loop():
     while not stop_thread.is_set():
@@ -226,7 +223,10 @@ def data_generation_loop():
                 print("No satellites to monitor. Stopping data generation.")
                 break
 
-            current_dashboard_data = { "rsos": [], "logs": [], "subframes": [] }
+            current_anomalies = []
+            anomaly_satellite_counts = Counter()
+
+            current_dashboard_data = { "rsos": [], "logs": [], "subframes": [], "anomalies": [], "anomaly_count": 0, "anomaly_breakdown": [] }
 
             for sat_info in monitored_satellites:
                 norad_id = sat_info['noradId']
@@ -246,20 +246,6 @@ def data_generation_loop():
 
                 anomaly_result = run_anomaly_detection(telemetry, sat_info)
 
-                # Index data into Elasticsearch
-                doc = {
-                    'norad_id': norad_id,
-                    'timestamp': datetime.utcnow(),
-                    'telemetry': telemetry,
-                    'scores': anomaly_result['scores'],
-                    'is_anomaly': anomaly_result['is_anomaly'],
-                    'location': {
-                        'lat': lat,
-                        'lon': lon,
-                    }
-                }
-                es_client.index(index="orbitwatch-metrics", document=doc)
-
                 rso_data = {
                     "id": norad_id,
                     "name": sat_info['name'],
@@ -272,19 +258,29 @@ def data_generation_loop():
                     anomaly_id = f"anomaly_{norad_id}_{int(time.time())}"
                     new_anomaly = {
                         "id": anomaly_id,
-                        "satelliteName": sat_info['name'],
-                        "noradId": norad_id,
-                        "anomalyResult": anomaly_result,
+                        "norad_id": norad_id,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "location": {"latitude": lat, "longitude": lon, "altitude": alt},
+                        "location": {
+                            "lat": lat,
+                            "lon": lon,
+                        },
+                        "anomaly_type": anomaly_result.get('anomaly_type'),
+                        "severity": anomaly_result.get('severity'),
                         "isFlagged": False
                     }
-                    anomalies_detected.append(new_anomaly)
-                    socketio.emit('new_anomaly', new_anomaly)
+                    current_anomalies.append(new_anomaly)
+                    anomaly_satellite_counts[norad_id] += 1
                     rso_data["threatLevel"] = anomaly_result.get("severity", "medium")
                     rso_data["status"] = anomaly_result.get("anomaly_type", "Anomaly")
 
                 current_dashboard_data["rsos"].append(rso_data)
+
+            # Update the dashboard data with the calculated metrics
+            current_dashboard_data["anomalies"] = current_anomalies
+            current_dashboard_data["anomaly_count"] = len(current_anomalies)
+            current_dashboard_data["anomaly_breakdown"] = [
+                {"key": k, "doc_count": v} for k, v in anomaly_satellite_counts.most_common(5)
+            ]
 
             socketio.emit('dashboard_data', current_dashboard_data)
         socketio.sleep(5) # Emit data every 5 seconds
@@ -381,4 +377,4 @@ def get_mock_tle_data():
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000)

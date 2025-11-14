@@ -42,6 +42,7 @@ interface OrbitalMapProps {
   onFlagAnomaly: (anomalyId: string) => void
   onSelectRso: (rso: RSO) => void
   rsos: RSO[]
+  anomalies: RealTimeAnomaly[]
 }
 
 const MapController = ({ anomalies, rsos }: { anomalies: RealTimeAnomaly[], rsos: RSO[] }) => {
@@ -64,26 +65,7 @@ const MapController = ({ anomalies, rsos }: { anomalies: RealTimeAnomaly[], rsos
 }
 
 
-export default function OrbitalMap({ onFlagAnomaly, onSelectRso, rsos }: OrbitalMapProps) {
-  const [anomalies, setAnomalies] = useState<RealTimeAnomaly[]>([]);
-
-  useEffect(() => {
-    const fetchAnomalies = async () => {
-      try {
-        const response = await fetch('/api/anomalies');
-        const data = await response.json();
-        setAnomalies(data);
-      } catch (error) {
-        console.error('Failed to fetch anomalies:', error);
-      }
-    };
-
-    fetchAnomalies();
-    const interval = setInterval(fetchAnomalies, 5000); // Fetch every 5 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
+export default function OrbitalMap({ onFlagAnomaly, onSelectRso, rsos, anomalies }: OrbitalMapProps) {
   const mapCenter: [number, number] = [20, 0]
 
   return (
