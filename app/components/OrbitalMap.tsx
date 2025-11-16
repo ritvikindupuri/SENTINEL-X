@@ -74,6 +74,12 @@ export default function OrbitalMap({ onFlagAnomaly, onSelectRso, rsos, anomalies
       zoom={2}
       className="h-full w-full bg-gray-800 rounded-lg"
       zoomControl={false}
+      whenCreated={(map) => {
+        if (window.Cypress) {
+          window.cypressMap = map;
+        }
+        document.dispatchEvent(new CustomEvent('map-ready', { detail: map }));
+      }}
     >
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
