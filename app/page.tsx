@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -16,6 +17,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import AnomalyDashboard from "./components/AnomalyDashboard"
+import AnomalyBreakdown from "./components/AnomalyBreakdown"
 
 const OrbitalMap = dynamic(() => import("./components/OrbitalMap"), {
   ssr: false,
@@ -49,6 +52,9 @@ const initialData: DashboardData = {
   subframes: [],
   logs: [],
   rsos: [],
+  anomalies: [],
+  anomaly_count: 0,
+  anomaly_breakdown: [],
 };
 
 export default function Dashboard() {
@@ -130,14 +136,16 @@ export default function Dashboard() {
       <main className="flex-1 p-6 grid grid-cols-12 grid-rows-12 gap-6">
         <div className="col-span-8 row-span-8">
           <OrbitalMap
-            anomalies={dashboardData.recentEvents}
             onFlagAnomaly={handleFlagAnomaly}
             onSelectRso={(rso) => setSelectedRso(rso)}
             rsos={dashboardData.rsos}
+            anomalies={dashboardData.anomalies}
           />
         </div>
         <div className="col-span-4 row-span-8 flex flex-col gap-6">
           <RSOCharacterization rso={selectedRso} />
+          <AnomalyDashboard anomalyCount={dashboardData.anomaly_count} />
+          <AnomalyBreakdown aggregations={{ anomaly_by_satellite: { buckets: dashboardData.anomaly_breakdown } }} />
           <Subframes subframes={dashboardData.subframes} />
         </div>
         <div className="col-span-12 row-span-4">
