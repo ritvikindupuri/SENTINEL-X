@@ -83,6 +83,7 @@ export class RealTimeInferenceService {
   private subframes: Subframe[] = [];
 
   private onNewDataCallback: (data: DashboardData) => void = () => {};
+  private onStatusChangeCallback: (status: string) => void = () => {};
   public socket: any = null;
 
   constructor() {}
@@ -113,6 +114,10 @@ export class RealTimeInferenceService {
         this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
       }
     });
+
+    this.socket.on("processing_status", (data: { status: string }) => {
+        this.onStatusChangeCallback(data.status);
+    });
   }
 
   public saveCredentials(username: string, password: string) {
@@ -131,6 +136,10 @@ export class RealTimeInferenceService {
 
   public onNewData(callback: (data: DashboardData) => void) {
     this.onNewDataCallback = callback;
+  }
+
+  public onStatusChange(callback: (status: string) => void) {
+    this.onStatusChangeCallback = callback;
   }
 
   private emitFullDashboardData() {

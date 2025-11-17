@@ -14,13 +14,9 @@ from sklearn.ensemble import IsolationForest
 from flask import Flask
 from flask_socketio import SocketIO, emit
 import threading
-from elasticsearch import Elasticsearch
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-
-# --- Elasticsearch Client ---
-es_client = Elasticsearch("http://localhost:9200")
 
 # --- Global State & Configuration ---
 SPACETRACK_URL = "https://www.space-track.org"
@@ -246,20 +242,6 @@ def data_generation_loop():
 
                 anomaly_result = run_anomaly_detection(telemetry, sat_info)
 
-                # Index data into Elasticsearch
-                doc = {
-                    'norad_id': norad_id,
-                    'timestamp': datetime.utcnow(),
-                    'telemetry': telemetry,
-                    'scores': anomaly_result['scores'],
-                    'is_anomaly': anomaly_result['is_anomaly'],
-                    'location': {
-                        'lat': lat,
-                        'lon': lon,
-                    }
-                }
-                es_client.index(index="orbitwatch-metrics", document=doc)
-
                 rso_data = {
                     "id": norad_id,
                     "name": sat_info['name'],
@@ -300,16 +282,9 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected')
 
-@socketio.on('save_credentials')
-def handle_save_credentials(data):
+def _handle_data_processing(username, password):
+    """Handles the long-running data fetching, training, and processing."""
     global data_thread
-    username = data.get('username')
-    password = data.get('password')
-
-    print("Received credentials, stopping existing data thread if running.")
-    stop_thread.set()
-    if data_thread is not None:
-        data_thread.join()
 
     # Use mock data if dummy user is provided
     if username == 'dummy_user':
@@ -317,7 +292,7 @@ def handle_save_credentials(data):
         tle_lines = get_mock_tle_data()
     else:
         if not login_spacetrack(username, password):
-            emit('auth_error', {'message': 'Invalid Space-Track credentials.'})
+            socketio.emit('auth_error', {'message': 'Invalid Space-Track credentials.'})
             return
         tle_lines = get_tle_data(norad_ids)
 
@@ -326,7 +301,7 @@ def handle_save_credentials(data):
         return
 
     sats = parse_tle_and_create_sats(tle_lines)
-    train_models(sats)  # Train models with the fetched data
+    train_models(sats)
     with thread_lock:
         monitored_satellites.clear()
         for norad_id, sat_data in sats.items():
@@ -340,6 +315,24 @@ def handle_save_credentials(data):
     stop_thread.clear()
     data_thread = threading.Thread(target=data_generation_loop)
     data_thread.start()
+    socketio.emit('processing_status', {'status': 'complete'})
+
+
+@socketio.on('save_credentials')
+def handle_save_credentials(data):
+    global data_thread
+    username = data.get('username')
+    password = data.get('password')
+
+    print("Received credentials, stopping existing data thread if running.")
+    stop_thread.set()
+    if data_thread is not None:
+        data_thread.join()
+        data_thread = None
+
+    # Start the data processing in a background task
+    socketio.emit('processing_status', {'status': 'started'})
+    socketio.start_background_task(_handle_data_processing, username, password)
 
 
 # --- Utility Functions ---
