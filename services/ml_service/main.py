@@ -29,7 +29,7 @@ thread_lock = threading.Lock()
 anomalies_detected = []
 monitored_satellites = []
 telemetry_data_store = {}
-norad_ids = ["25544", "28654", "36516", "33591", "43135"] # ISS, Hubble, etc.
+norad_ids = ["25544", "28654", "36516", "33591", "43135", "41866", "26609", "31135"] # LEO (ISS, Hubble) and GEO (GOES, ANIK, GALAXY)
 
 # --- ML Model Initialization ---
 def create_autoencoder(input_dim):
@@ -222,7 +222,7 @@ def data_generation_loop():
                 print("No satellites to monitor. Stopping data generation.")
                 break
 
-            current_dashboard_data = { "rsos": [], "logs": [], "subframes": [] }
+            current_dashboard_data = { "rsos": [], "logs": [], "subframes": [], "recentEvents": [] }
 
             for sat_info in monitored_satellites:
                 norad_id = sat_info['noradId']
@@ -261,13 +261,17 @@ def data_generation_loop():
                         "location": {"latitude": lat, "longitude": lon, "altitude": alt},
                         "isFlagged": False
                     }
-                    anomalies_detected.append(new_anomaly)
-                    socketio.emit('new_anomaly', new_anomaly)
+                    # Prepend to keep the list sorted by most recent, and limit to 50 items
+                    anomalies_detected.insert(0, new_anomaly)
+                    if len(anomalies_detected) > 50:
+                        anomalies_detected.pop()
+
                     rso_data["threatLevel"] = anomaly_result.get("severity", "medium")
                     rso_data["status"] = anomaly_result.get("anomaly_type", "Anomaly")
 
                 current_dashboard_data["rsos"].append(rso_data)
 
+            current_dashboard_data["recentEvents"] = anomalies_detected
             socketio.emit('dashboard_data', current_dashboard_data)
         socketio.sleep(5) # Emit data every 5 seconds
     print("Data generation loop has stopped.")

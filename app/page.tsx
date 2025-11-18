@@ -56,8 +56,13 @@ export default function Dashboard() {
   const [selectedRso, setSelectedRso] = useState<RSO | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [realTimeInference, setRealTimeInference] = useState<RealTimeInferenceService | null>(null);
+
+  useEffect(() => {
+    // Open settings on initial client render
+    setIsSettingsOpen(true);
+  }, []);
 
   const handleServiceReady = (service: RealTimeInferenceService) => {
     setRealTimeInference(service);
@@ -71,26 +76,29 @@ export default function Dashboard() {
     });
   };
 
-  if (!realTimeInference) {
-    return <DataServiceProvider onServiceReady={handleServiceReady} />;
-  }
-
   const handleSaveCredentials = () => {
-    realTimeInference.saveCredentials(username, password);
-    setIsSettingsOpen(false);
+    if (realTimeInference) {
+      realTimeInference.saveCredentials(username, password);
+      setIsSettingsOpen(false);
+    }
   };
 
   const handleDummyCredentials = () => {
-    realTimeInference.saveCredentials('dummy_user', 'dummy_password');
-    setIsSettingsOpen(false);
+    if (realTimeInference) {
+      realTimeInference.saveCredentials('dummy_user', 'dummy_password');
+      setIsSettingsOpen(false);
+    }
   }
 
   const handleFlagAnomaly = (anomalyId: string) => {
-    realTimeInference.flagAnomaly(anomalyId);
+    if (realTimeInference) {
+      realTimeInference.flagAnomaly(anomalyId);
+    }
   };
 
   return (
     <div className="h-screen bg-[#1a1d2e] text-white flex flex-col overflow-hidden">
+      <DataServiceProvider onServiceReady={handleServiceReady} />
       <Header {...dashboardData.header} />
 
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
