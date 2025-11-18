@@ -101,18 +101,12 @@ export class RealTimeInferenceService {
     this.socket.on("disconnect", () => console.log("Disconnected from Python ML service"));
     this.socket.on("auth_error", (error: {message: string}) => console.error("Authentication Error:", error.message));
 
-    this.socket.on("dashboard_data", (data: { rsos: RSO[], logs: LogEntry[], subframes: Subframe[] }) => {
+    this.socket.on("dashboard_data", (data: { rsos: RSO[], logs: LogEntry[], subframes: Subframe[], recentEvents: RealTimeAnomaly[] }) => {
       this.rsos = data.rsos || [];
       this.logs = data.logs || [];
       this.subframes = data.subframes || [];
+      this.anomalies = data.recentEvents || [];
       this.emitFullDashboardData();
-    });
-
-    this.socket.on("new_anomaly", (newAnomaly: RealTimeAnomaly) => {
-      console.log("Received new anomaly:", newAnomaly);
-      if (!this.anomalies.some(a => a.id === newAnomaly.id)) {
-        this.anomalies = [newAnomaly, ...this.anomalies.slice(0, 49)];
-      }
     });
 
     this.socket.on("processing_status", (data: { status: string }) => {
