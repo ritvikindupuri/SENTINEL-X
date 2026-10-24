@@ -36,6 +36,33 @@ Orbitwatch is a real-time satellite anomaly detection dashboard designed for a m
     pip install -r requirements.txt
     ```
 
+4.  **Configure environment variables:**
+    
+    **Frontend (.env.local):**
+    ```bash
+    # Copy the example file
+    cp .env.example .env.local
+    
+    # Generate a secure token (32 bytes in hex = 64 characters)
+    openssl rand -hex 32
+    
+    # Edit .env.local and set:
+    # NEXT_PUBLIC_SOCKETIO_AUTH_TOKEN=<your-generated-token>
+    # NEXT_PUBLIC_ML_SERVICE_URL=http://localhost:5000
+    ```
+    
+    **Backend (services/ml_service/.env):**
+    ```bash
+    # Copy the example file
+    cp services/ml_service/.env.example services/ml_service/.env
+    
+    # Edit services/ml_service/.env and set:
+    # SOCKETIO_AUTH_TOKEN=<same-token-as-frontend>
+    # CORS_ALLOWED_ORIGINS=http://localhost:3000
+    ```
+    
+    **⚠️ Important:** The `SOCKETIO_AUTH_TOKEN` must be identical in both frontend and backend configuration files for Socket.IO authentication to work.
+
 ## Running the Application
 
 To run Orbitwatch, you must have both the backend and frontend servers running concurrently.
@@ -56,6 +83,41 @@ To run Orbitwatch, you must have both the backend and frontend servers running c
 
 3.  **Access the Application:**
     Open your web browser and navigate to `http://localhost:3000`. You will be prompted to enter your Space-Track credentials or use dummy data to begin.
+
+## Security
+
+Orbitwatch implements several security measures to protect the application and its real-time data connections:
+
+### Socket.IO Authentication
+
+The application requires authentication for all Socket.IO connections between the frontend and backend:
+
+*   **Token-Based Authentication:** Clients must provide a valid authentication token during the Socket.IO handshake
+*   **Environment Configuration:** The token is configured via `SOCKETIO_AUTH_TOKEN` environment variable
+*   **Connection Rejection:** Unauthenticated connection attempts are automatically rejected
+
+### CORS Protection
+
+Cross-Origin Resource Sharing (CORS) is restricted to specific allowed origins:
+
+*   **Environment Configuration:** Allowed origins are configured via `CORS_ALLOWED_ORIGINS` environment variable
+*   **Default Development:** Set to `http://localhost:3000` for local development
+*   **Production Deployment:** Must be updated to include only your production domain(s)
+
+### Security Headers
+
+The Next.js application includes security headers to protect against common web vulnerabilities:
+
+*   **X-Content-Type-Options:** Set to `nosniff` to prevent MIME type sniffing
+*   **Referrer-Policy:** Set to `strict-origin-when-cross-origin` to control referrer information
+*   **Content-Security-Policy (CSP):** Configured to restrict resource loading and prevent XSS attacks
+
+### Build Configuration Note
+
+**⚠️ Warning:** The current build configuration (`next.config.mjs`) has `ignoreDuringBuilds: true` for both ESLint and TypeScript errors. This allows the application to build even with linting or type errors. In a production environment, it is recommended to:
+1. Fix all linting and type errors
+2. Remove or set to `false`: `ignoreDuringBuilds` and `ignoreBuildErrors`
+3. Ensure clean builds before deployment
 
 ## Features in Detail
 

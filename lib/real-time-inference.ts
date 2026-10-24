@@ -1,7 +1,8 @@
 
 import io from "socket.io-client";
 
-const ML_SERVICE_URL = "http://localhost:5000";
+const ML_SERVICE_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL || "http://localhost:5000";
+const SOCKETIO_AUTH_TOKEN = process.env.NEXT_PUBLIC_SOCKETIO_AUTH_TOKEN || "";
 
 // --- Data Interfaces ---
 
@@ -95,6 +96,9 @@ export class RealTimeInferenceService {
       transports: ["websocket"],
       reconnectionAttempts: 5,
       reconnectionDelay: 3000,
+      auth: {
+        token: SOCKETIO_AUTH_TOKEN
+      }
     });
 
     this.socket.on("connect", () => console.log("Connected to Python ML service"));
