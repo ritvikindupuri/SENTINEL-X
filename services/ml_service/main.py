@@ -11,12 +11,21 @@ import random
 import tensorflow as tf
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
-from flask import Flask
-from flask_socketio import SocketIO, emit
+from flask import Flask, request
+from flask_socketio import SocketIO, emit, disconnect
 import threading
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# Security: Load CORS allowed origins from environment variable
+CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+# Security: Load authentication token from environment variable
+SOCKETIO_AUTH_TOKEN = os.environ.get('SOCKETIO_AUTH_TOKEN', '')
+
+if not SOCKETIO_AUTH_TOKEN:
+    print("WARNING: SOCKETIO_AUTH_TOKEN not set. Socket.IO authentication is disabled!")
+
+socketio = SocketIO(app, cors_allowed_origins=CORS_ALLOWED_ORIGINS, async_mode='threading')
 
 # --- Global State & Configuration ---
 SPACETRACK_URL = "https://www.space-track.org"
@@ -278,9 +287,26 @@ def data_generation_loop():
 
 
 # --- WebSocket Handlers ---
+
+# Security: Authentication middleware for Socket.IO handshake
 @socketio.on('connect')
-def handle_connect():
-    print('Client connected')
+def handle_connect(auth):
+    """
+    Authenticate clients during the Socket.IO handshake.
+    Clients must provide a valid auth token in the connection auth parameter.
+    """
+    if SOCKETIO_AUTH_TOKEN:
+        # Extract token from auth parameter
+        client_token = None
+        if auth and isinstance(auth, dict):
+            client_token = auth.get('token')
+        
+        if not client_token or client_token != SOCKETIO_AUTH_TOKEN:
+            print(f'Client connection rejected: Invalid or missing authentication token')
+            disconnect()
+            return False
+    
+    print('Client connected and authenticated')
 
 @socketio.on('disconnect')
 def handle_disconnect():
