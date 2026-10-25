@@ -11,12 +11,36 @@ import random
 import tensorflow as tf
 from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
-from flask import Flask
-from flask_socketio import SocketIO, emit
+from flask import Flask, request
+from flask_socketio import SocketIO, emit, join_room, disconnect
 import threading
+import hmac
+import hashlib
+import base64
+import json
+import functools
+import sys
+
+# --- Security Configuration (fail closed) ---
+# SOCKETIO_AUTH_SECRET: server-side HMAC key shared ONLY with the Next.js token
+#   issuer route (app/api/socket-token). Never exposed to the browser.
+# SOCKETIO_ALLOWED_ORIGINS: comma-separated exact origins, e.g. https://app.example.com
+SOCKETIO_AUTH_SECRET = os.environ.get("SOCKETIO_AUTH_SECRET", "").strip()
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SOCKETIO_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+TOKEN_MAX_TTL_SECONDS = 300
+
+if len(SOCKETIO_AUTH_SECRET) < 32 or not ALLOWED_ORIGINS:
+    # Fail closed: refuse to start without auth config instead of running open.
+    print("FATAL: SOCKETIO_AUTH_SECRET (>=32 chars) and SOCKETIO_ALLOWED_ORIGINS must be set. Refusing to start.", file=sys.stderr)
+    sys.exit(1)
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+
+# sid -> verified subject; only sids in here may call sensitive events
+authenticated_sids = {}
+# The single subscriber room that owns the current data stream
+active_owner = {"sub": None}
 
 # --- Global State & Configuration ---
 SPACETRACK_URL = "https://www.space-track.org"
@@ -272,21 +296,76 @@ def data_generation_loop():
                 current_dashboard_data["rsos"].append(rso_data)
 
             current_dashboard_data["recentEvents"] = anomalies_detected
-            socketio.emit('dashboard_data', current_dashboard_data)
+            owner = active_owner["sub"]
+            if owner:
+                # Scoped to the owner's room only -- never a global broadcast.
+                socketio.emit('dashboard_data', current_dashboard_data, to=_room(owner))
         socketio.sleep(5) # Emit data every 5 seconds
     print("Data generation loop has stopped.")
 
 
 # --- WebSocket Handlers ---
+def _b64d(seg):
+    return base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4))
+
+def _room(sub):
+    return f"user:{sub}"
+
+def verify_token(token):
+    """Verify '<b64url(payload)>.<b64url(hmac_sha256)>' minted server-side by
+    app/api/socket-token. Returns subject or None. Constant-time compare."""
+    if not isinstance(token, str) or token.count(".") != 1 or len(token) > 2048:
+        return None
+    body, sig = token.split(".")
+    expected = hmac.new(SOCKETIO_AUTH_SECRET.encode(), body.encode(), hashlib.sha256).digest()
+    try:
+        provided = _b64d(sig)
+        payload = json.loads(_b64d(body))
+    except Exception:
+        return None
+    if not hmac.compare_digest(expected, provided):
+        return None
+    now = int(time.time())
+    exp, iat, sub = payload.get("exp"), payload.get("iat"), payload.get("sub")
+    if not isinstance(exp, int) or not isinstance(iat, int) or not isinstance(sub, str) or not sub:
+        return None
+    if exp < now or exp - iat > TOKEN_MAX_TTL_SECONDS or iat > now + 30:
+        return None
+    return sub
+
+def require_auth(f):
+    """Per-event authorization: re-checks the sid on every sensitive event."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        sub = authenticated_sids.get(request.sid)
+        if not sub:
+            emit('auth_error', {'message': 'Unauthorized.'}, to=request.sid)
+            disconnect()
+            return None
+        return f(sub, *args, **kwargs)
+    return wrapper
+
 @socketio.on('connect')
-def handle_connect():
-    print('Client connected')
+def handle_connect(auth=None):
+    origin = (request.headers.get('Origin') or '').strip()
+    if not origin or origin not in ALLOWED_ORIGINS:
+        print('Rejected connection: missing/disallowed Origin')
+        return False
+    token = auth.get('token') if isinstance(auth, dict) else None
+    sub = verify_token(token)
+    if not sub:
+        print('Rejected connection: invalid or missing token')
+        return False
+    authenticated_sids[request.sid] = sub
+    join_room(_room(sub))
+    print('Client authenticated')
 
 @socketio.on('disconnect')
-def handle_disconnect():
+def handle_disconnect(*args):
+    authenticated_sids.pop(request.sid, None)
     print('Client disconnected')
 
-def _handle_data_processing(username, password):
+def _handle_data_processing(username, password, sub):
     """Handles the long-running data fetching, training, and processing."""
     global data_thread
 
@@ -296,7 +375,7 @@ def _handle_data_processing(username, password):
         tle_lines = get_mock_tle_data()
     else:
         if not login_spacetrack(username, password):
-            socketio.emit('auth_error', {'message': 'Invalid Space-Track credentials.'})
+            socketio.emit('auth_error', {'message': 'Invalid Space-Track credentials.'}, to=_room(sub))
             return
         tle_lines = get_tle_data(norad_ids)
 
@@ -315,18 +394,26 @@ def _handle_data_processing(username, password):
                 "satrec": sat_data['satrec']
             })
 
+        active_owner["sub"] = sub
+
     print(f"Starting data generation for {len(monitored_satellites)} satellites.")
     stop_thread.clear()
     data_thread = threading.Thread(target=data_generation_loop)
     data_thread.start()
-    socketio.emit('processing_status', {'status': 'complete'})
+    socketio.emit('processing_status', {'status': 'complete'}, to=_room(sub))
 
 
 @socketio.on('save_credentials')
-def handle_save_credentials(data):
+@require_auth
+def handle_save_credentials(sub, data):
     global data_thread
+    if not isinstance(data, dict):
+        return
     username = data.get('username')
     password = data.get('password')
+    if not isinstance(username, str) or not isinstance(password, str):
+        emit('auth_error', {'message': 'Invalid request.'}, to=request.sid)
+        return
 
     print("Received credentials, stopping existing data thread if running.")
     stop_thread.set()
@@ -335,8 +422,8 @@ def handle_save_credentials(data):
         data_thread = None
 
     # Start the data processing in a background task
-    socketio.emit('processing_status', {'status': 'started'})
-    socketio.start_background_task(_handle_data_processing, username, password)
+    emit('processing_status', {'status': 'started'}, to=_room(sub))
+    socketio.start_background_task(_handle_data_processing, username, password, sub)
 
 
 # --- Utility Functions ---

@@ -1,7 +1,19 @@
 
 import io from "socket.io-client";
 
-const ML_SERVICE_URL = "http://localhost:5000";
+const ML_SERVICE_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL || "http://localhost:5000";
+
+// Fetch a short-lived, server-issued token. No shared secret ships in the bundle.
+async function fetchSocketToken(): Promise<string> {
+  const res = await fetch("/api/socket-token", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Socket token request failed: ${res.status}`);
+  const { token } = await res.json();
+  return token;
+}
 
 // --- Data Interfaces ---
 
@@ -93,6 +105,15 @@ export class RealTimeInferenceService {
 
     this.socket = io(ML_SERVICE_URL, {
       transports: ["websocket"],
+      // Called on every (re)connect so each attempt gets a fresh token.
+      auth: (cb: (data: { token: string }) => void) => {
+        fetchSocketToken()
+          .then((token) => cb({ token }))
+          .catch((err) => {
+            console.error("Authentication Error:", err.message);
+            cb({ token: "" });
+          });
+      },
       reconnectionAttempts: 5,
       reconnectionDelay: 3000,
     });
